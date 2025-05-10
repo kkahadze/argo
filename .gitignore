@@ -1,0 +1,85 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.env
+.venv
+env.bak/
+venv.bak/
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# API keys and environment variables
+.env
+.env.*
+
+# Application-specific log files
+initial_prompt_log.txt
+initial_response_log.txt
+followup_prompt_log.txt
+followup_response_log.txt
+*.log
+
+# Text and data files
+*.txt
+*.jsonl
+*.json
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE project settings
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# OpenAI specific
+*_openai_cache.json
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/* 
