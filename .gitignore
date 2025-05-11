@@ -53,7 +53,8 @@ followup_response_log.txt
 *.log
 
 # Text and data files
-*.txt
+/*.txt
+!requirements.txt
 *.jsonl
 *.json
 
