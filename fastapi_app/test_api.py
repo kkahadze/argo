@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # Load API key from .env file if it exists
 load_dotenv()
 
-def test_translation(mingrelian_text, api_key=None, target_language="english", url="http://localhost:8000"):
+def test_translation(mingrelian_text, api_key=None, target_language="english", model=None, provider=None, url="http://localhost:8000"):
     """
     Test the translation API with a given Mingrelian text.
     
@@ -16,6 +16,8 @@ def test_translation(mingrelian_text, api_key=None, target_language="english", u
         mingrelian_text (str): Text to translate in Mingrelian
         api_key (str, optional): OpenAI API key. Defaults to None (will try to load from env).
         target_language (str, optional): Target language for translation. Defaults to "english".
+        model (str, optional): AI model to use. Defaults to None (will use server default).
+        provider (str, optional): LLM provider to use. Defaults to None (will use server default).
         url (str, optional): Base URL of the API. Defaults to "http://localhost:8000".
     
     Returns:
@@ -33,6 +35,12 @@ def test_translation(mingrelian_text, api_key=None, target_language="english", u
         "api_key": api_key,
         "target_language": target_language
     }
+    
+    # Add optional parameters if provided
+    if model:
+        data["model"] = model
+    if provider:
+        data["provider"] = provider
     
     # Set the headers
     headers = {
@@ -92,6 +100,9 @@ def main():
     parser.add_argument("--api-key", help="OpenAI API key (will use OPENAI_API_KEY env var if not provided)")
     parser.add_argument("--target", choices=["english", "georgian"], default="english",
                         help="Target language for translation (default: english)")
+    parser.add_argument("--model", help="AI model to use (e.g., gpt-4o, gpt-5-2025-08-07)")
+    parser.add_argument("--provider", choices=["openai", "anthropic"], 
+                        help="LLM provider to use (default: uses server default)")
     parser.add_argument("--url", default="http://localhost:8000",
                         help="Base URL of the API (default: http://localhost:8000)")
     
@@ -102,6 +113,8 @@ def main():
         args.text,
         api_key=args.api_key,
         target_language=args.target,
+        model=args.model,
+        provider=args.provider,
         url=args.url
     )
     
