@@ -120,11 +120,13 @@ def find_close_lemma_matches(file_path, search_term, max_distance=1):
             return close_matches
                 
     except FileNotFoundError:
-        print(f"Error: File '{file_path}' not found.", file=sys.stderr)
-        sys.exit(1)
+        error_msg = f"Error: Dictionary file '{file_path}' not found."
+        print(error_msg, file=sys.stderr)
+        raise FileNotFoundError(error_msg)
     except Exception as e:
-        print(f"Error reading file: {e}", file=sys.stderr)
-        sys.exit(1)
+        error_msg = f"Error reading file: {e}"
+        print(error_msg, file=sys.stderr)
+        raise RuntimeError(error_msg)
     
     return []
 
@@ -246,11 +248,13 @@ def find_lemma_entry(file_path, search_term):
             return entries
             
     except FileNotFoundError:
-        print(f"Error: File '{file_path}' not found.", file=sys.stderr)
-        sys.exit(1)
+        error_msg = f"Error: Dictionary file '{file_path}' not found."
+        print(error_msg, file=sys.stderr)
+        raise FileNotFoundError(error_msg)
     except Exception as e:
-        print(f"Error reading file: {e}", file=sys.stderr)
-        sys.exit(1)
+        error_msg = f"Error reading file: {e}"
+        print(error_msg, file=sys.stderr)
+        raise RuntimeError(error_msg)
     
     return []
 
@@ -297,11 +301,13 @@ def find_entries_containing_word(file_path, georgian_word):
             return entries
                 
     except FileNotFoundError:
-        print(f"Error: File '{file_path}' not found.", file=sys.stderr)
-        sys.exit(1)
+        error_msg = f"Error: Dictionary file '{file_path}' not found."
+        print(error_msg, file=sys.stderr)
+        raise FileNotFoundError(error_msg)
     except Exception as e:
-        print(f"Error reading file: {e}", file=sys.stderr)
-        sys.exit(1)
+        error_msg = f"Error reading file: {e}"
+        print(error_msg, file=sys.stderr)
+        raise RuntimeError(error_msg)
     
     return []
 

@@ -80,7 +80,7 @@ def process_prompt(prompt_text, api_key, provider="openai", model=None):
         latinized = prompt_text
     
     # Load grammar for translation
-    grammar_path = Path(__file__).parent.parent / 'harris.txt'
+    grammar_path = Path(__file__).parent.parent / 'data' / 'harris.txt'
     try:
         with open(grammar_path, 'r') as file:
             grammar = file.read()
@@ -89,7 +89,7 @@ def process_prompt(prompt_text, api_key, provider="openai", model=None):
         grammar = ""
     
     # Default dictionary file path
-    dict_file = Path(__file__).parent.parent / 'kajaia.txt'
+    dict_file = Path(__file__).parent.parent / 'data' / 'kajaia.txt'
     
     # Create a variable to collect all output similar to prompt.py
     dict_entries = []
