@@ -1,8 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import os
 import sys
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -240,10 +242,110 @@ def process_prompt(prompt_text, api_key, provider=None, model=None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"API error: {str(e)}")
 
-@app.post("/chat", response_model=ResponseOut)
+async def stream_translation(prompt_text, api_key, provider=None, model=None):
+    """
+    Stream translation progress with updates after first API call.
+    Yields JSON events for progress updates.
+    """
+    # Use environment variables if provider/model not specified
+    if provider is None:
+        provider = os.getenv("LLM_PROVIDER", "openai")
+    if model is None:
+        model = os.getenv("LLM_MODEL")
+    
+    # Initialize LLM client
+    try:
+        llm_client = LLMClient(provider=provider, model=model, api_key=api_key)
+    except Exception as e:
+        yield f"data: {json.dumps({'error': f'Failed to initialize LLM client: {str(e)}'})}\n\n"
+        return
+    
+    # Determine if input is mkhedruli or latinized
+    if is_mkhedruli(prompt_text):
+        mkhedruli = prompt_text
+        latinized = mkhedruli_to_latinized(prompt_text)
+    else:
+        mkhedruli = latinized_to_mkhedruli(prompt_text)
+        latinized = prompt_text
+    
+    # Load grammar for translation
+    grammar_path = Path(__file__).parent.parent / 'data' / 'harris.txt'
+    try:
+        with open(grammar_path, 'r') as file:
+            grammar = file.read()
+    except FileNotFoundError:
+        grammar = ""
+    
+    # Default dictionary file path
+    dict_file = Path(__file__).parent.parent / 'data' / 'kajaia.txt'
+    
+    # Create a variable to collect all output similar to prompt.py
+    dict_entries = []
+    all_entries = []
+    
+    # Break the string into words
+    words = latinized.split()
+    
+    # Lookup words in dictionary
+    for word in words:
+        entries = lookup_word(word, dict_file)
+        all_entries.append({'word': word, 'entries': entries})
+        if entries:
+            dict_entries.extend(entries)
+            print(f"Dict 1:  Latinized Mingrelian word: {word}")
+    
+    # Prepare initial prompt
+    initial_prompt = get_initial_translation_prompt(dict_entries, logging_mode=True)
+    
+    try:
+        # Initial API call using LLM client
+        initial_response_text = llm_client.complete(initial_prompt)
+        
+        # ✨ FIRST API CALL COMPLETE - Send progress update
+        yield f"data: {json.dumps({'progress': 50, 'message': 'First translation complete'})}\n\n"
+        
+        # Log the initial response to a file
+        log_to_file(initial_response_text, 'initial_response_log.txt', True)
+        
+        # Prepare follow-up prompt
+        follow_up_phrase = get_follow_up_phrase(latinized, mkhedruli)
+        grammar_text = get_grammar_text(grammar)
+        
+        # Create follow-up prompt
+        follow_up_prompt = get_follow_up_prompt(
+            follow_up_phrase, 
+            grammar_text, 
+            initial_response_text, 
+            dict_entries,
+            logging_mode=True
+        )
+        
+        # Make follow-up API call using LLM client
+        follow_up_response_text = llm_client.complete(follow_up_prompt)
+        
+        # Log the follow-up response to a file
+        log_to_file(follow_up_response_text, 'followup_response_log.txt', True)
+        
+        # Extract Georgian and English translations
+        georgian_translation, english_translation = extract_translations(follow_up_response_text)
+        
+        # Send final result
+        result = {
+            'mingrelian_latinized': latinized,
+            'mingrelian_mkhedruli': mkhedruli,
+            'georgian': georgian_translation,
+            'english': english_translation,
+            'full_response': follow_up_response_text
+        }
+        yield f"data: {json.dumps({'result': result})}\n\n"
+        
+    except Exception as e:
+        yield f"data: {json.dumps({'error': f'API error: {str(e)}'})}\n\n"
+
+@app.post("/chat")
 async def chat(data: PromptIn):
     """
-    Process a Mingrelian text and return translations.
+    Process a Mingrelian text and return translations with streaming progress.
     
     Parameters:
     - prompt: Text in Mingrelian (either latinized or mkhedruli script)
@@ -261,7 +363,12 @@ async def chat(data: PromptIn):
     if data.provider is not None and data.provider not in ["openai", "anthropic"]:
         raise HTTPException(status_code=400, detail="Provider must be 'openai' or 'anthropic'")
     
-    # Process the prompt
-    translations = process_prompt(data.prompt, data.api_key, data.provider, data.model)
-    
-    return ResponseOut(**translations) 
+    # Return streaming response
+    return StreamingResponse(
+        stream_translation(data.prompt, data.api_key, data.provider, data.model),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    ) 
