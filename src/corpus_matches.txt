@@ -1,0 +1,95 @@
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: ოოდო ათაშ ქინთუოჯინით მა დო ბიძისკუა მიჸუნდ ხოლო ჭიჭეთ უკლაშ ჩქიმი.
+English: And, I and my younger cousin looked at him. He was a little bit younger than me.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: ხოლო მა დო თი ჩქიმ ბიძისქუაქ მიდაფრთით, ღელე ქოიჩქჷნო მურენ?
+English: Another one is that I and my cousin; do you know what 'gele' is?
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: მა თაშ გამიგებუ თენა.
+English: I have heard it.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: მა საერთოდ ირო მაინტერესენდ ისტორია.
+English: Generally, I have always been interested in history.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: დო თე მუჟანს ვარდუო კოჩიი ჩქინ ოჯახშა  სტუმარი  ქიმიშუ, ვარდა მუთუნინი,  თინეფ მუთუნ  ჯვეშ ამბეებს მოყვენდეს და, მა  თექ გევოხედ დო ირიათო გაფაციცეფით  უჯინეედი  თინემს.
+English: Whenever a guest visited our family, or something happened, people told old stories, and I used to sit there listening very attentively.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: ასე  ვერსია ნამუთ ინტერნეტის გეძჷნ, ჭიჭე შხვანერიე დო მა ათაშ მაფ გჷნაგეფ თენა, ნამდა, ათე დედამოკაშ ტერიტორიასჷ მოკათ ოსურს გამათხოზუა  დამპყრ...  თურქიქ.
+English: Presently, the version, which is published in the Internet, is slightly different, and I have heard that it was the territory of Dedamoka where a pregnant woman was chased by a Turk.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: მა ათაშ  მაფუდ გინაგებ, ინტერნეტის თაშ ვეგეძ.
+English: This is what I have heard. This version isn't available in the Internet/
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: - ხო დო მა ვარ, ბაღანობას თაშ ჯვეშეფ ჩქი ათაშ მიწიინდეს, ნამდა გესქიდუა თექ,  ოდოო ირტუა თეთ.
+English: And, I have not heard the Internet version. In my childhood, aged people told that the woman survived and escaped.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: მინ ტრადიციათჷ ჭუნა ვარდა ობინეხეეს, ვარდა ორტვინს ეშმადვანა, მარა მა ბჩუანქ, მუშენდა მოკო თენა ბრელქ ქოძირასი.
+English: Sometimes, following the tradition, it is either burnt in a vineyard or placed in a vegetable garden but I keep them because I want many people to see it.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: მა ბაღანობას ხოლო ბშუ თხირიშ ნოჸელეფ უღუდუ დო ხილეფი დო კამფეტეფი დჷ თეშ გონწყუალა.
+English: What I also remember from my childhood is that it had hazelnut branches and that itwas decorated with candies.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: თვითონ ასე მა სოდეთ მუვშენქინ, თე სოფელს ჯოხო ზუბი.
+English: The name of the village, I work presently, is Zubi.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: ჯვარიში, ათე ტერიტორიასჷ ოხუუ დო ტობავარჩხილჷცჷნ ფერი, ლეგენდა რე ართ ათეშნერი, ნამუთ მა მაბრუო კლასის ვორდინ თიწკჷმა, ქჷდმავალეს სკოლას.
+English: There is a legend about this territory of Jvari and Tobavarchkhili Lake; I was assigned to record the legend when I was at school, in the eghth grade.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: ქჷმორთ, პირდაპირ ქინკიჯინ ასე თეურშენი გვალასდჷნი, თაურშე ქჷდუძახუა არამხუტუქ,  ვეგმართავა, თაქ მა ვორექია დო ვაქიმინავა თენა.
+English: He arrived. When he looked directly hither, when he was over the mountain, Aramkhutu called him not to come down there because it was him who was there and not do it.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: ოდო ათიშ გურშენ ტობავარჩხილიშ წყარ რენია წმინდა დო ამდღა ხოლო ასე, მა ხოლო გილუურქუ ტობავარჩხილშა, ასე ბოლო წანემს ჟირ სუმშახ ქუვორდი დო იშენ ვორიდჷდ თი ამბეს, მით უმეტეს - ჯვეშეფი.
+English: That is why the water of Tobavarchkhili is holy, and, even presently, I held back from it, particularly, older generation; I too visit Tobavarchkhili. In recent years, I was there two or three times.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: ათჷნა გუაკეთჷ დო ათე ზომეფ მა ხოო ლააფ ვამჩქჷდ თეჲ დო წარმოდგენა ვამღჷდ მუ დჷნ.
+English: Dito provided me with the sizes, and this is what I made. I couldn't play it and had no idea what it was.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: ასე მა ქიმუოშვიტინანქ თეეს.
+English: Now, I'll whistle with it.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: ათექ მა მუთ გინომით თე ბაღანაქჷ ქოიჩქჷნო?
+English: Do you know how Dito surprised me?
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: დო წარმოიდგინ, ჩქიმ ნაკეთებ ჩონგურით დო ათე ჩელა ვარდუო ბიძია მიოგჷნ, მა ათაქ ჩილამურც იმგარდი,  თი დონეშა.
+English: Imagine, he played "Chela" with the lute made by me, my dear. I liked it so much that I cried here with tears running down.
+------------------------------------------------------------
+Word: მა
+Match Type: word_in_phrase
+Mingrelian: მა ვამჷჩანს, მარა ათაქ მეზობელს უჩანს ართ დიხას, მაჟია დიხას, მუდა დიხას ჩანსჷ დო ეთეურეგანშე რე თენა მოღალირჷ.
+English: I don't have it but my neighbor has on one spot, on another as well, it grows on many locations and is brought from there.
+------------------------------------------------------------
