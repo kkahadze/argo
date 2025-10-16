@@ -91,67 +91,28 @@ class LLMClient:
     
     def _complete_openai(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Complete using OpenAI API."""
-        # GPT-5 Pro models use the new responses API endpoint
-        is_gpt5_pro = "gpt-5-pro" in self.model.lower()
+        import openai
+        client = openai.OpenAI(api_key=self.api_key)
         
-        if is_gpt5_pro:
-            # Use the new v1/responses endpoint for GPT-5 Pro
-            import openai
-            client = openai.OpenAI(api_key=self.api_key)
-            
-            # Combine system and user prompts if both exist
-            full_prompt = prompt
-            if system_prompt:
-                full_prompt = f"{system_prompt}\n\n{prompt}"
-            
-            kwargs = {
-                "model": self.model,
-                "prompt": full_prompt,
-            }
-            
-            # Add optional parameters
-            if self.temperature is not None:
-                kwargs["temperature"] = self.temperature
-            if self.max_tokens:
-                kwargs["max_tokens"] = self.max_tokens
-            
-            response = client.responses.create(**kwargs)
-            # The response structure might be different - try common patterns
-            if hasattr(response, 'output_text'):
-                return response.output_text
-            elif hasattr(response, 'text'):
-                return response.text
-            elif hasattr(response, 'content'):
-                return response.content
-            elif hasattr(response, 'choices') and len(response.choices) > 0:
-                choice = response.choices[0]
-                if hasattr(choice, 'text'):
-                    return choice.text
-                elif hasattr(choice, 'message'):
-                    return choice.message.content
-            else:
-                # Fallback: return string representation
-                return str(response)
-        else:
-            # Use standard chat completions for other models
-            messages = []
-            
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            
-            messages.append({"role": "user", "content": prompt})
-            
-            kwargs = {
-                "model": self.model,
-                "messages": messages,
-                "temperature": self.temperature,
-            }
-            
-            if self.max_tokens:
-                kwargs["max_tokens"] = self.max_tokens
-            
-            response = self.client_lib.chat.completions.create(**kwargs)
-            return response.choices[0].message.content
+        # Use standard chat completions for all models
+        messages = []
+        
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        messages.append({"role": "user", "content": prompt})
+        
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+        }
+        
+        if self.max_tokens:
+            kwargs["max_tokens"] = self.max_tokens
+        
+        response = client.chat.completions.create(**kwargs)
+        return response.choices[0].message.content
     
     def _complete_anthropic(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Complete using Anthropic Claude API."""
