@@ -99,46 +99,35 @@ class LLMClient:
         
         if is_gpt5_pro:
             # Use the v1/responses endpoint for GPT-5 Pro
-            # Build messages array for the prompt object
-            messages = []
-            
+            # GPT-5 Pro uses 'input' parameter (not 'prompt')
+            # Input can be either a string or a messages array
             if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            
-            messages.append({"role": "user", "content": prompt})
+                # Use messages array format when we have a system prompt
+                input_data = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
+            else:
+                # Use messages array format for consistency
+                input_data = [
+                    {"role": "user", "content": prompt}
+                ]
             
             kwargs = {
                 "model": self.model,
-                "prompt": messages,  # Pass messages array as the prompt object
+                "input": input_data,
             }
             
             # Add optional parameters
             if self.temperature is not None:
                 kwargs["temperature"] = self.temperature
             if self.max_tokens:
-                kwargs["max_tokens"] = self.max_tokens
+                kwargs["max_output_tokens"] = self.max_tokens  # Note: different param name
             
             response = client.responses.create(**kwargs)
             
-            # Handle different possible response structures
-            if hasattr(response, 'output_text'):
-                return response.output_text
-            elif hasattr(response, 'text'):
-                return response.text
-            elif hasattr(response, 'content'):
-                if isinstance(response.content, str):
-                    return response.content
-                elif isinstance(response.content, list) and len(response.content) > 0:
-                    return response.content[0].text if hasattr(response.content[0], 'text') else str(response.content[0])
-            elif hasattr(response, 'choices') and len(response.choices) > 0:
-                choice = response.choices[0]
-                if hasattr(choice, 'text'):
-                    return choice.text
-                elif hasattr(choice, 'message'):
-                    return choice.message.content
-            else:
-                # Fallback: return string representation
-                return str(response)
+            # Extract text from response
+            return response.output_text
         else:
             # Use standard chat completions for other models
             messages = []
