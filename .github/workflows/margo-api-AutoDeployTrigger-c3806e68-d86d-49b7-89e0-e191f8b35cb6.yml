@@ -26,7 +26,7 @@ jobs:
       - name: Build & Deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v2
         with:
-          appSourcePath: ${{ github.workspace }}/argo
+          appSourcePath: ${{ github.workspace }}
           dockerfilePath: Dockerfile
 
           registryUrl: margotranslatoracr.azurecr.io
