@@ -1,0 +1,39 @@
+description: "Mingrelian Translation Evaluation"
+
+# Use the custom Python provider that wraps the full translation pipeline
+providers:
+  - id: file://../provider.py
+    label: "Gemini Flash"
+    config:
+      provider: gemini
+      model: gemini-2.5-flash-lite
+      source_language: mingrelian
+      target_language: english
+      temperature: 0.7
+
+# Prompts are just the raw input - the provider handles all RAG/dictionary lookups
+prompts:
+  - "{{input}}"
+
+# Test cases
+tests:
+  # Basic word translation
+  - vars:
+      input: "მა"
+    assert:
+      - type: contains
+        value: "I"
+
+  - vars:
+      input: "დო"
+    assert:
+      - type: contains-any
+        value: ["and", "so"]
+  
+  # Sentence translation test
+  - vars:
+      input: "მა ვორექ"
+    assert:
+      - type: contains
+        value: "I am"
+
