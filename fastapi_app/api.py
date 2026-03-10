@@ -246,7 +246,7 @@ async def chat(data: PromptIn):
     if not api_key:
         # Use server-side Gemini key for free public access
         provider = "gemini"
-        model = model or "gemini-2.5-flash-lite"
+        model = model or "gemini-3.1-flash-lite-preview"
         api_key = os.getenv("GEMINI_API_KEY")  # Server-side key
         if not api_key:
             raise HTTPException(status_code=500, detail="Server API key not configured")

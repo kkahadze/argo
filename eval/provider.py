@@ -48,7 +48,7 @@ def call_api(prompt, options, context):
     try:
         # Extract configuration
         provider = options.get('provider', 'gemini')
-        model = options.get('model', 'gemini-2.5-flash-lite')
+        model = options.get('model', 'gemini-3.1-flash-lite-preview')
         api_key = options.get('api_key') or os.getenv(f'{provider.upper()}_API_KEY')
         source_language = options.get('source_language', 'mingrelian')
         target_language = options.get('target_language', 'english')
@@ -100,7 +100,7 @@ if __name__ == '__main__':
     test_prompt = "მა"
     test_options = {
         'provider': 'gemini',
-        'model': 'gemini-2.5-flash-lite',
+        'model': 'gemini-3.1-flash-lite-preview',
         'source_language': 'mingrelian',
         'target_language': 'english',
         'temperature': 0.7

@@ -77,7 +77,7 @@ class LLMClient:
                 self.client_lib = genai
                 self.api_key = api_key or os.getenv("GEMINI_API_KEY")
                 # Use model from parameter, then env var LLM_MODEL, then default
-                self.model = model or os.getenv("LLM_MODEL") or "gemini-3-flash-preview"
+                self.model = model or os.getenv("LLM_MODEL") or "gemini-3.1-flash-lite-preview"
                 
                 if not self.api_key:
                     raise ValueError("Gemini API key not found. Set GEMINI_API_KEY in .env or pass api_key parameter.")
