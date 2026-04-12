@@ -202,6 +202,34 @@ Logs are automatically saved to the `logs/` directory:
 LOG_LEVEL=DEBUG  # For more verbose logging
 ```
 
+## Translation Analytics
+
+The backend can optionally write each translation request to Supabase for later analysis. These writes are scheduled in the background so they do not block the streamed response to the user.
+
+Suggested fields captured:
+- source text and translated output
+- language pair
+- provider and model
+- duration in milliseconds
+- whether the request used a user-supplied API key
+- prompt metrics when the request reached prompt construction
+- error details when a request fails
+
+### Setup
+
+1. Create the analytics table by running the SQL in `supabase/translation_events.sql` in your Supabase SQL editor.
+2. Add the following environment variables:
+
+```bash
+SUPABASE_LOGGING_ENABLED=true
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_API_KEY=your_supabase_runtime_key
+SUPABASE_LOGGING_TABLE=translation_events
+SUPABASE_LOGGING_TIMEOUT_SECONDS=2.5
+```
+
+For production, prefer a service-role key via `SUPABASE_SERVICE_ROLE_KEY`. If you want to start quickly with a publishable key, keep the insert-only RLS policy from the provided SQL so clients cannot read the table through that key.
+
 ## Project Structure
 
 ```

@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import os
 import sys
 import json
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -18,8 +19,12 @@ from src.single_call_translator import translate as single_call_translate
 from src.logger import (
     setup_logger,
     log_translation_request,
-    log_translation_result,
     log_error
+)
+from src.translation_analytics import (
+    build_translation_event,
+    infer_response_source,
+    schedule_translation_event,
 )
 import re
 
@@ -52,9 +57,6 @@ class ResponseOut(BaseModel):
 
 # Initialize FastAPI app
 app = FastAPI(title="Mingrelian Translator API")
-
-# Setup logger
-logger = setup_logger('api')
 
 # Setup logger
 logger = setup_logger('api')
@@ -166,7 +168,17 @@ def format_output_for_legacy(result, source_lang, target_lang, source_text):
     return output
 
 
-async def stream_translation(prompt_text, api_key, source_language="mingrelian", target_language="english", provider=None, model=None):
+async def stream_translation(
+    prompt_text,
+    api_key,
+    source_language="mingrelian",
+    target_language="english",
+    provider=None,
+    model=None,
+    *,
+    used_user_api_key=False,
+    request_meta=None,
+):
     """
     Stream translation with a single LLM API call.
     Yields JSON events for progress updates.
@@ -179,6 +191,9 @@ async def stream_translation(prompt_text, api_key, source_language="mingrelian",
         provider: "openai" or "anthropic" (if None, reads from LLM_PROVIDER env var, defaults to "openai")
         model: Optional model name (if None, reads from LLM_MODEL env var, then uses provider default)
     """
+    request_meta = request_meta or {}
+    request_started_at = time.time()
+
     # Use environment variables if provider/model not specified
     if provider is None:
         provider = os.getenv("LLM_PROVIDER", "openai")
@@ -200,6 +215,24 @@ async def stream_translation(prompt_text, api_key, source_language="mingrelian",
         llm_client = LLMClient(provider=provider, model=model, api_key=api_key)
     except Exception as e:
         log_error(logger, e, {'provider': provider, 'model': model})
+        schedule_translation_event(
+            build_translation_event(
+                source_text=prompt_text,
+                target_text=None,
+                source_language=source_language,
+                target_language=target_language,
+                provider=provider,
+                model=model,
+                duration_ms=int((time.time() - request_started_at) * 1000),
+                response_source="init_error",
+                used_user_api_key=used_user_api_key,
+                status="error",
+                error_message=f"Failed to initialize LLM client: {str(e)}",
+                app_origin=request_meta.get("origin"),
+                referer=request_meta.get("referer"),
+                user_agent=request_meta.get("user_agent"),
+            )
+        )
 
         yield f"data: {json.dumps({'error': f'Failed to initialize LLM client: {str(e)}'})}\n\n"
         return
@@ -230,6 +263,24 @@ async def stream_translation(prompt_text, api_key, source_language="mingrelian",
             target_lang=target_language,
             source_text=prompt_text
         )
+
+        schedule_translation_event(
+            build_translation_event(
+                source_text=prompt_text,
+                target_text=formatted_result["target_text"],
+                source_language=source_language,
+                target_language=target_language,
+                provider=provider,
+                model=llm_client.model,
+                duration_ms=int((time.time() - request_started_at) * 1000),
+                response_source=infer_response_source(result),
+                used_user_api_key=used_user_api_key,
+                prompt_metrics=result.get("prompt_metrics"),
+                app_origin=request_meta.get("origin"),
+                referer=request_meta.get("referer"),
+                user_agent=request_meta.get("user_agent"),
+            )
+        )
         
         # Send final result
         final_event = f"data: {json.dumps({'result': formatted_result})}\n\n"
@@ -250,12 +301,30 @@ async def stream_translation(prompt_text, api_key, source_language="mingrelian",
             'provider': provider,
             'model': model
         })
+        schedule_translation_event(
+            build_translation_event(
+                source_text=prompt_text,
+                target_text=None,
+                source_language=source_language,
+                target_language=target_language,
+                provider=provider,
+                model=getattr(llm_client, "model", model),
+                duration_ms=int((time.time() - request_started_at) * 1000),
+                response_source="translation_error",
+                used_user_api_key=used_user_api_key,
+                status="error",
+                error_message=str(e),
+                app_origin=request_meta.get("origin"),
+                referer=request_meta.get("referer"),
+                user_agent=request_meta.get("user_agent"),
+            )
+        )
         yield f"data: {json.dumps({'error': f'Translation error: {str(e)}'})}\n\n"
         return
 
 
 @app.post("/chat")
-async def chat(data: PromptIn):
+async def chat(data: PromptIn, request: Request):
     """
     Process text translation between Mingrelian, Georgian, and English.
     
@@ -303,7 +372,20 @@ async def chat(data: PromptIn):
     
     # Return streaming response
     return StreamingResponse(
-        stream_translation(data.prompt, api_key, data.source_language, data.target_language, provider, model),
+        stream_translation(
+            data.prompt,
+            api_key,
+            data.source_language,
+            data.target_language,
+            provider,
+            model,
+            used_user_api_key=bool(data.api_key),
+            request_meta={
+                "origin": request.headers.get("origin"),
+                "referer": request.headers.get("referer"),
+                "user_agent": request.headers.get("user-agent"),
+            },
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
