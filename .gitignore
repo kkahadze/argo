@@ -84,7 +84,7 @@ Thumbs.db
 */.ipynb_checkpoints/* 
 
 # texts
-!kajaia.txt
+!context_source.txt
 !harris.txt
 bats/
 eval/redteam/redteam.yaml

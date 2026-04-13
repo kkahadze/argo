@@ -169,14 +169,14 @@ Located in `fastapi_app/data/`:
 1. **sentence_pairs.tsv** - English-Mingrelian parallel sentences
 2. **gal.tsv** - Russian-Mingrelian dictionary
 3. **kk.tsv** - Mingrelian-Russian-Georgian dictionary (4 columns: word, IPA, Russian, Georgian)
-4. **kajaia_cleaned.txt** - Large Georgian-Mingrelian reference (used for context, not extractive lookups)
+4. **context_source.txt** - Large fallback reference used for LLM context, not extractive lookups
 5. **harris.txt** - Grammar reference
 
 ### Optimization Strategies
 
 1. **Standalone Word Matching**: Prioritizes exact word matches (surrounded by spaces) over substring matches to reduce irrelevant context
 
-2. **Short-Circuit for Extractive Dictionaries**: If a standalone match is found in sentence_pairs.tsv, gal.tsv, or kk.tsv, the system skips searching kajaia_cleaned.txt
+2. **Short-Circuit for Extractive Dictionaries**: If a standalone match is found in sentence_pairs.tsv, gal.tsv, or kk.tsv, the system skips searching context_source.txt
 
 3. **Instant Lookup**: If an exact match for the full input is found in extractive dictionaries, translation is returned instantly without any LLM call
 
@@ -241,7 +241,7 @@ argo/
 │       ├── sentence_pairs.tsv
 │       ├── gal.tsv
 │       ├── kk.tsv
-│       ├── kajaia_cleaned.txt
+│       ├── context_source.txt
 │       └── harris.txt
 ├── src/
 │   ├── single_call_translator.py  # Core translation logic

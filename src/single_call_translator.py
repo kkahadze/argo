@@ -335,21 +335,21 @@ def grep_search_kk(word: str, *, standalone_only: bool = False) -> tuple[str, bo
     return "", False
 
 
-# Georgian
-def grep_search_kajaia(word: str, *, standalone_only: bool = False) -> str:
+# Unstructured fallback context source
+def grep_search_context_source(word: str, *, standalone_only: bool = False) -> str:
     """
-    Search kajaia_cleaned.txt for Georgian dictionary entries.
+    Search context_source.txt for relevant entry blocks.
     Splits text by empty lines and returns the block containing the search term.
     Prioritizes standalone word matches over substring matches.
     """
-    file_path = _get_data_path("kajaia_cleaned.txt")
+    file_path = _get_data_path("context_source.txt")
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
-            kajaia_text = file.read()
+            context_source_text = file.read()
     except FileNotFoundError:
         return ""
     
-    entries = re.split(r'\n\s*\n', kajaia_text.strip())
+    entries = re.split(r'\n\s*\n', context_source_text.strip())
     
     # First pass: look for standalone word matches
     standalone_output = "========\n"
@@ -376,7 +376,7 @@ def grep_search_kajaia(word: str, *, standalone_only: bool = False) -> str:
 def grep_search_from_english(word: str) -> str:
     """
     Search all dictionaries from English word.
-    Short-circuits kajaia search if standalone matches found in extractive dictionaries.
+    Short-circuits context-source search if standalone matches found in extractive dictionaries.
     """
     # Try to translate to Russian and Georgian for broader search
     res_ru = word
@@ -402,12 +402,12 @@ def grep_search_from_english(word: str) -> str:
     output += kk_ru_result
     output += kk_ge_result
     
-    # Only search kajaia if no standalone matches found in extractive dictionaries
+    # Only search the context source if no standalone matches were found in extractive dictionaries
     has_any_standalone = (pairs_has_standalone or gal_has_standalone or 
                           kk_ru_has_standalone or kk_ge_has_standalone)
     
     if not has_any_standalone:
-        output += grep_search_kajaia(res_ge)
+        output += grep_search_context_source(res_ge)
 
     if len(output) > 10000:
         return output[:10000]
@@ -418,7 +418,7 @@ def grep_search_from_english(word: str) -> str:
 def grep_search_from_mingrelian(word: str) -> str:
     """
     Search all dictionaries from Mingrelian word.
-    Short-circuits kajaia search if standalone matches found in extractive dictionaries.
+    Short-circuits context-source search if standalone matches found in extractive dictionaries.
     """
     def _mkhedruli_has_letters(s: str) -> bool:
         return any('\u10D0' <= ch <= '\u10FF' for ch in s)
@@ -567,18 +567,18 @@ def grep_search_from_mingrelian(word: str) -> str:
     output += gal_result
     output += kk_result
     
-    # Only search kajaia if no standalone matches found in extractive dictionaries
+    # Only search the context source if no standalone matches were found in extractive dictionaries
     has_any_standalone = pairs_has_standalone or gal_has_standalone or kk_has_standalone
     
-    kajaia_result = ""
+    context_source_result = ""
     if not has_any_standalone:
-        kajaia_result = grep_search_kajaia(word)
-        output += kajaia_result
+        context_source_result = grep_search_context_source(word)
+        output += context_source_result
 
     # If absolutely nothing matched across all four sources, try a conservative
     # case-suffix stripping fallback (e.g., ...თ → stem).
     case_fallback_applied = False
-    if not (pairs_result or gal_result or kk_result or kajaia_result):
+    if not (pairs_result or gal_result or kk_result or context_source_result):
         for stem in _case_strip_candidates_mkhedruli(word):
             # First: standalone-only search. If we find any standalone match for this
             # candidate, we return ONLY standalone matches and stop (no partial matches,
@@ -586,10 +586,10 @@ def grep_search_from_mingrelian(word: str) -> str:
             pairs2_s, pairs2_has_s = grep_search_pairs(stem, standalone_only=True)
             gal2_s, gal2_has_s = grep_search_gal(stem, standalone_only=True)
             kk2_s, kk2_has_s = grep_search_kk(stem, standalone_only=True)
-            kajaia2_s = grep_search_kajaia(stem, standalone_only=True)
+            context_source2_s = grep_search_context_source(stem, standalone_only=True)
 
-            output2_s = pairs2_s + gal2_s + kk2_s + kajaia2_s
-            has_any_standalone2 = pairs2_has_s or gal2_has_s or kk2_has_s or bool(kajaia2_s)
+            output2_s = pairs2_s + gal2_s + kk2_s + context_source2_s
+            has_any_standalone2 = pairs2_has_s or gal2_has_s or kk2_has_s or bool(context_source2_s)
 
             if has_any_standalone2:
                 output += f"\n[Case-stripped fallback: {word} → {stem}]\n"
@@ -604,8 +604,8 @@ def grep_search_from_mingrelian(word: str) -> str:
 
             output2 = pairs2 + gal2 + kk2
             has_any_standalone2 = pairs2_has or gal2_has or kk2_has
-            kajaia2 = "" if has_any_standalone2 else grep_search_kajaia(stem)
-            output2 += kajaia2
+            context_source2 = "" if has_any_standalone2 else grep_search_context_source(stem)
+            output2 += context_source2
 
             if output2:
                 output += f"\n[Case-stripped fallback: {word} → {stem}]\n"
@@ -615,16 +615,16 @@ def grep_search_from_mingrelian(word: str) -> str:
 
     # If we STILL have no hits, assume this might be a verb with a preverb attached
     # and try stripping a simple preverb.
-    if not (pairs_result or gal_result or kk_result or kajaia_result or case_fallback_applied):
+    if not (pairs_result or gal_result or kk_result or context_source_result or case_fallback_applied):
         for stem in _preverb_strip_candidates_mkhedruli(word):
             # Prefer standalone-only results for the stripped stem.
             pairs2_s, pairs2_has_s = grep_search_pairs(stem, standalone_only=True)
             gal2_s, gal2_has_s = grep_search_gal(stem, standalone_only=True)
             kk2_s, kk2_has_s = grep_search_kk(stem, standalone_only=True)
-            kajaia2_s = grep_search_kajaia(stem, standalone_only=True)
+            context_source2_s = grep_search_context_source(stem, standalone_only=True)
 
-            output2_s = pairs2_s + gal2_s + kk2_s + kajaia2_s
-            has_any_standalone2 = pairs2_has_s or gal2_has_s or kk2_has_s or bool(kajaia2_s)
+            output2_s = pairs2_s + gal2_s + kk2_s + context_source2_s
+            has_any_standalone2 = pairs2_has_s or gal2_has_s or kk2_has_s or bool(context_source2_s)
 
             if has_any_standalone2:
                 output += f"\n[Preverb-stripped fallback: {word} → {stem}]\n"
@@ -638,8 +638,8 @@ def grep_search_from_mingrelian(word: str) -> str:
 
             output2 = pairs2 + gal2 + kk2
             has_any_standalone2 = pairs2_has or gal2_has or kk2_has
-            kajaia2 = "" if has_any_standalone2 else grep_search_kajaia(stem)
-            output2 += kajaia2
+            context_source2 = "" if has_any_standalone2 else grep_search_context_source(stem)
+            output2 += context_source2
 
             if output2:
                 output += f"\n[Preverb-stripped fallback: {word} → {stem}]\n"
@@ -655,7 +655,7 @@ def grep_search_from_mingrelian(word: str) -> str:
 def grep_search_from_georgian(word: str) -> str:
     """
     Search all dictionaries from Georgian word.
-    Short-circuits kajaia search if standalone matches found in extractive dictionaries.
+    Short-circuits context-source search if standalone matches found in extractive dictionaries.
     """
     # Try to translate to English and Russian for broader search
     res_en = word
@@ -679,11 +679,11 @@ def grep_search_from_georgian(word: str) -> str:
     output += kk_result
     output += gal_result
     
-    # Only search kajaia if no standalone matches found in extractive dictionaries
+    # Only search the context source if no standalone matches were found in extractive dictionaries
     has_any_standalone = pairs_has_standalone or kk_has_standalone or gal_has_standalone
     
     if not has_any_standalone:
-        output += grep_search_kajaia(word)
+        output += grep_search_context_source(word)
 
     if len(output) > 10000:
         return output[:10000]
@@ -848,7 +848,7 @@ PROMPT_BUILDERS = {
 
 def check_exact_match_simple(input_text: str, source_lang: str, target_lang: str) -> Optional[str]:
     """
-    Check if the exact input text exists in extractive dictionaries (not kajaia).
+    Check if the exact input text exists in extractive dictionaries (not the context source).
     Returns the translation if found, None otherwise.
     
     This is the simple direct lookup without Google Translate augmentation.
