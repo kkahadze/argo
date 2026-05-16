@@ -124,7 +124,7 @@ class ProviderConfigTests(unittest.TestCase):
         self.assertEqual(
             provider_config.DEFAULT_MODEL_BY_PROVIDER,
             {
-                "openai": "gpt-5.4-nano",
+                "openai": "gpt-5.5",
                 "anthropic": "claude-sonnet-4-5-20250929",
                 "gemini": "gemini-3.1-flash-lite-preview",
             },
@@ -137,12 +137,16 @@ class ProviderConfigTests(unittest.TestCase):
                 "gemini": "GEMINI_API_KEY",
             },
         )
+        self.assertEqual(
+            provider_config.DEFAULT_REASONING_EFFORT_BY_MODEL,
+            {"gpt-5.5": "none"},
+        )
 
     def test_server_key_allowlist_is_centralized(self):
         self.assertEqual(
             provider_config.SERVER_KEY_MODELS,
             {
-                "openai": frozenset({"gpt-5.4-nano"}),
+                "openai": frozenset({"gpt-5.5", "gpt-5.4-nano"}),
                 "gemini": frozenset({"gemini-3.1-flash-lite-preview"}),
             },
         )
@@ -183,6 +187,14 @@ class ProviderConfigTests(unittest.TestCase):
 
         self.assertIsNone(provider_config.get_default_model_for_provider("unknown"))
         self.assertIsNone(provider_config.get_api_key_env_var("unknown"))
+        self.assertEqual(
+            provider_config.get_default_reasoning_effort_for_model("gpt-5.5"),
+            "none",
+        )
+        self.assertIsNone(
+            provider_config.get_default_reasoning_effort_for_model("gpt-5.4-nano")
+        )
+        self.assertIsNone(provider_config.get_default_reasoning_effort_for_model(None))
 
     def test_llm_client_uses_canonical_config(self):
         with patch.dict(sys.modules, {"dotenv": self._fake_dotenv_module()}):
@@ -236,11 +248,16 @@ class ProviderConfigTests(unittest.TestCase):
                     client.model,
                     provider_config.DEFAULT_MODEL_BY_PROVIDER[provider],
                 )
+                self.assertEqual(
+                    client.reasoning_effort,
+                    provider_config.get_default_reasoning_effort_for_model(client.model),
+                )
 
     def test_api_uses_canonical_defaults_and_key_mapping(self):
         api = self._import_api_with_lightweight_deps()
 
         request_data = api.PromptIn(prompt="მა")
+        self.assertIsNone(request_data.reasoning_effort)
         self.assertEqual(
             request_data.source_language,
             provider_config.DEFAULT_SOURCE_LANGUAGE,
@@ -261,6 +278,41 @@ class ProviderConfigTests(unittest.TestCase):
         with patch.dict(os.environ, {env_var: "gemini-test-key"}, clear=True):
             self.assertEqual(api.get_server_api_key("gemini"), "gemini-test-key")
         self.assertIsNone(api.get_server_api_key("unknown"))
+
+    def test_api_passes_reasoning_effort_to_lazy_llm_client(self):
+        api = self._import_api_with_lightweight_deps()
+        captured = {}
+
+        class FakeLLMClient:
+            def __init__(self, provider, model, api_key, reasoning_effort=None):
+                captured["provider"] = provider
+                captured["model"] = model
+                captured["api_key"] = api_key
+                captured["reasoning_effort"] = reasoning_effort
+                self.model = model
+
+            def complete(self, prompt, system_prompt=None):
+                captured["prompt"] = prompt
+                captured["system_prompt"] = system_prompt
+                return "ok"
+
+        with patch.object(api, "resolve_api_key_for_llm", return_value="server-key"), patch.object(
+            api, "LLMClient", FakeLLMClient
+        ):
+            client = api.LazyLLMClient(
+                provider="openai",
+                model="gpt-5.5",
+                api_key=None,
+                reasoning_effort="none",
+            )
+            self.assertEqual(client.complete("hello", system_prompt="sys"), "ok")
+
+        self.assertEqual(captured["provider"], "openai")
+        self.assertEqual(captured["model"], "gpt-5.5")
+        self.assertEqual(captured["api_key"], "server-key")
+        self.assertEqual(captured["reasoning_effort"], "none")
+        self.assertEqual(captured["prompt"], "hello")
+        self.assertEqual(captured["system_prompt"], "sys")
 
     def test_eval_provider_uses_provider_default_model_for_provider_only_config(self):
         eval_provider = self._load_eval_provider_with_fake_dotenv()

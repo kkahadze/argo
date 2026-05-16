@@ -88,7 +88,7 @@ GEMINI_API_KEY=your_gemini_key_here
 LLM_PROVIDER=openai  # or "anthropic" or "gemini"
 
 # Default model (optional)
-LLM_MODEL=gpt-5.4-nano  # or gpt-5.4-mini, gpt-5.4, claude-sonnet-4-5-20250929, gemini-3.1-flash-lite-preview, etc.
+LLM_MODEL=gpt-5.5  # or gpt-5.4-nano, gpt-5.4-mini, gpt-5.4, claude-sonnet-4-5-20250929, gemini-3.1-flash-lite-preview, etc.
 
 # Logging (optional, defaults to INFO console logs only)
 LOG_LEVEL=INFO
@@ -121,7 +121,8 @@ The API will be available at `http://localhost:8000`
   "source_language": "mingrelian",
   "target_language": "english",
   "provider": "openai",
-  "model": "gpt-5.4-nano"
+  "model": "gpt-5.5",
+  "reasoning_effort": "none"
 }
 ```
 
@@ -132,6 +133,7 @@ The API will be available at `http://localhost:8000`
 - `target_language` (string, optional): Target language - "mingrelian", "georgian", or "english" (default: "english" from `src/provider_config.py`)
 - `provider` (string, optional): LLM provider - "openai", "anthropic", or "gemini" (reads from env if not specified)
 - `model` (string, optional): Model name (reads from env if not specified, then uses provider default)
+- `reasoning_effort` (string, optional): OpenAI reasoning effort for GPT-5 family models, such as `"none"` or `"low"`
 
 **Response (SSE Stream):**
 
@@ -155,10 +157,11 @@ The endpoint streams server-sent events. The final event payload looks like:
 
 ## Supported Models
 
-Provider names, language names/defaults, provider model defaults, provider API key environment variables, and the server-side-key model allowlist are defined in `src/provider_config.py`. User-provided API keys may still request other provider-supported model names.
+Provider names, language names/defaults, provider model defaults, provider reasoning defaults, provider API key environment variables, and the server-side-key model allowlist are defined in `src/provider_config.py`. User-provided API keys may still request other provider-supported model names.
 
 ### OpenAI
-- `gpt-5.4-nano` (default)
+- `gpt-5.5` (default)
+- `gpt-5.4-nano`
 - `gpt-5.4-mini`
 - `gpt-5.4`
 - `gpt-4o`
@@ -388,7 +391,7 @@ Render is the documented deployment path for this backend. The repository includ
 2. Let Render read `render.yaml`, or manually use the build and start commands above.
 3. Set secrets in the Render dashboard. Do not commit secrets to the repository.
 
-The default Render config uses `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5.4-nano`,
+The default Render config uses `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5.5`,
 and prompts for `OPENAI_API_KEY` as a secret value. If you switch providers,
 set the matching provider and model variables plus the matching secret key
 (`ANTHROPIC_API_KEY` or `GEMINI_API_KEY`) in Render.

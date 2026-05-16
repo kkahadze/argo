@@ -11,7 +11,7 @@ services:
       - key: LLM_PROVIDER
         value: openai
       - key: LLM_MODEL
-        value: gpt-5.4-nano
+        value: gpt-5.5
       - key: LOG_LEVEL
         value: INFO
       - key: OPENAI_API_KEY

@@ -23,14 +23,18 @@ DEFAULT_SOURCE_LANGUAGE: Final[str] = "mingrelian"
 DEFAULT_TARGET_LANGUAGE: Final[str] = "english"
 
 DEFAULT_MODEL_BY_PROVIDER: Final[dict[LLMProvider, str]] = {
-    "openai": "gpt-5.4-nano",
+    "openai": "gpt-5.5",
     "anthropic": "claude-sonnet-4-5-20250929",
     "gemini": "gemini-3.1-flash-lite-preview",
 }
 
 SERVER_KEY_MODELS: Final[dict[LLMProvider, frozenset[str]]] = {
-    "openai": frozenset({"gpt-5.4-nano"}),
+    "openai": frozenset({"gpt-5.5", "gpt-5.4-nano"}),
     "gemini": frozenset({"gemini-3.1-flash-lite-preview"}),
+}
+
+DEFAULT_REASONING_EFFORT_BY_MODEL: Final[dict[str, str]] = {
+    "gpt-5.5": "none",
 }
 
 PROVIDER_API_KEY_ENV: Final[dict[LLMProvider, str]] = {
@@ -43,6 +47,13 @@ PROVIDER_API_KEY_ENV: Final[dict[LLMProvider, str]] = {
 def get_default_model_for_provider(provider: str) -> Optional[str]:
     """Resolve the provider's runtime default model."""
     return DEFAULT_MODEL_BY_PROVIDER.get(provider)
+
+
+def get_default_reasoning_effort_for_model(model: Optional[str]) -> Optional[str]:
+    """Resolve the runtime default reasoning effort for a model."""
+    if model is None:
+        return None
+    return DEFAULT_REASONING_EFFORT_BY_MODEL.get(model)
 
 
 def get_api_key_env_var(provider: str) -> Optional[str]:

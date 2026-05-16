@@ -24,6 +24,7 @@ from src.provider_config import (
     VALID_LANGUAGES,
     get_api_key_env_var,
     get_default_model_for_provider,
+    get_default_reasoning_effort_for_model,
     is_server_key_model_allowed,
 )
 from src.single_call_translator import translate as single_call_translate
@@ -49,6 +50,7 @@ class PromptIn(BaseModel):
     target_language: str = DEFAULT_TARGET_LANGUAGE  # Target language: "mingrelian", "georgian", or "english"
     provider: Optional[str] = None  # "openai", "anthropic", or "gemini" (if None, reads from env)
     model: Optional[str] = None  # Optional: specify model name (if None, reads from env)
+    reasoning_effort: Optional[str] = None  # Optional: OpenAI reasoning effort for GPT-5 family models
     visitor_id: Optional[str] = None  # Anonymous browser identifier for analytics only
 
 # Initialize FastAPI app
@@ -120,10 +122,11 @@ def resolve_api_key_for_llm(provider: str, model: str, api_key: Optional[str]) -
 class LazyLLMClient:
     """Delay provider credentials and SDK client setup until the first LLM call."""
 
-    def __init__(self, provider: str, model: str, api_key: Optional[str]):
+    def __init__(self, provider: str, model: str, api_key: Optional[str], reasoning_effort: Optional[str] = None):
         self.provider = provider
         self.model = model
         self._api_key = api_key
+        self._reasoning_effort = reasoning_effort
         self._client = None
 
     def _get_client(self):
@@ -134,6 +137,7 @@ class LazyLLMClient:
                     provider=self.provider,
                     model=self.model,
                     api_key=resolved_api_key,
+                    reasoning_effort=self._reasoning_effort,
                 )
             except Exception as exc:
                 raise LLMInitializationError(f"Failed to initialize LLM client: {str(exc)}") from exc
@@ -219,6 +223,7 @@ async def stream_translation(
     target_language=DEFAULT_TARGET_LANGUAGE,
     provider=None,
     model=None,
+    reasoning_effort=None,
     *,
     used_user_api_key=False,
     request_meta=None,
@@ -232,8 +237,9 @@ async def stream_translation(
         api_key: API key for the LLM provider (optional if the server has a provider key configured)
         source_language: Source language ("mingrelian", "georgian", or "english")
         target_language: Target language ("mingrelian", "georgian", or "english")
-        provider: "openai" or "anthropic" (if None, reads from LLM_PROVIDER env var, defaults to "openai")
+        provider: "openai", "anthropic", or "gemini" (if None, reads from LLM_PROVIDER env var, defaults to "openai")
         model: Optional model name (if None, reads from LLM_MODEL env var, then uses provider default)
+        reasoning_effort: Optional OpenAI reasoning effort for GPT-5 family models
     """
     request_meta = request_meta or {}
     request_started_at = time.time()
@@ -243,6 +249,8 @@ async def stream_translation(
         provider = os.getenv("LLM_PROVIDER", DEFAULT_PROVIDER)
     if model is None:
         model = os.getenv("LLM_MODEL") or get_default_model_for_provider(provider)
+    if reasoning_effort is None:
+        reasoning_effort = get_default_reasoning_effort_for_model(model)
     
     # Log the translation request
     log_translation_request(
@@ -254,7 +262,12 @@ async def stream_translation(
         model or 'default'
     )
     
-    llm_client = LazyLLMClient(provider=provider, model=model, api_key=api_key)
+    llm_client = LazyLLMClient(
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        reasoning_effort=reasoning_effort,
+    )
     
     try:
         # Call the single-call translator
@@ -386,6 +399,7 @@ async def chat(data: PromptIn, request: Request):
     - target_language: Target language ("mingrelian", "georgian", or "english")
     - provider: LLM provider to use ("openai", "anthropic", or "gemini")
     - model: Optional model name (uses provider default if None)
+    - reasoning_effort: Optional OpenAI reasoning effort for GPT-5 family models
     """
     if not data.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt text is required")
@@ -400,6 +414,7 @@ async def chat(data: PromptIn, request: Request):
     env_provider = os.getenv("LLM_PROVIDER", DEFAULT_PROVIDER)
     env_model = os.getenv("LLM_MODEL") if provider == env_provider else None
     model = data.model or env_model or get_default_model_for_provider(provider)
+    reasoning_effort = data.reasoning_effort or get_default_reasoning_effort_for_model(model)
     
     # Validate language parameters
     if data.source_language not in VALID_LANGUAGES:
@@ -420,6 +435,7 @@ async def chat(data: PromptIn, request: Request):
             data.target_language,
             provider,
             model,
+            reasoning_effort,
             used_user_api_key=bool(data.api_key),
             request_meta={
                 "visitor_id": visitor_id,

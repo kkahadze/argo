@@ -13,6 +13,7 @@ from src.provider_config import (
     SUPPORTED_PROVIDERS,
     get_api_key_env_var,
     get_default_model_for_provider,
+    get_default_reasoning_effort_for_model,
 )
 
 # Load environment variables
@@ -47,7 +48,6 @@ class LLMClient:
         self.provider = provider
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.reasoning_effort = reasoning_effort
 
         default_model = get_default_model_for_provider(provider)
         if default_model is None:
@@ -57,6 +57,9 @@ class LLMClient:
                 f"Unsupported provider: {provider}. Use {supported}."
             )
         self.model = model or os.getenv("LLM_MODEL") or default_model
+        self.reasoning_effort = (
+            reasoning_effort or get_default_reasoning_effort_for_model(self.model)
+        )
         api_key_env_var = get_api_key_env_var(provider)
         provider_api_key = os.getenv(api_key_env_var) if api_key_env_var else None
         self.api_key = api_key or provider_api_key
