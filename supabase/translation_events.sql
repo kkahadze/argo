@@ -11,6 +11,17 @@ create table if not exists public.translation_events (
     provider text,
     model text,
     response_source text not null default 'unknown',
+    translation_path text not null default 'unknown',
+    used_llm boolean not null default false,
+    used_evidence_bundle boolean not null default false,
+    used_dictionary_entries boolean not null default false,
+    used_grammar boolean not null default false,
+    used_exact_candidate_shortlist boolean not null default false,
+    exact_candidate_count integer,
+    prompt_characters integer,
+    dictionary_entries_characters integer,
+    grammar_characters integer,
+    llm_call_ms integer,
     duration_ms integer,
     source_text_length integer not null default 0,
     target_text_length integer,
@@ -31,9 +42,16 @@ create index if not exists translation_events_status_idx
 create index if not exists translation_events_provider_model_idx
     on public.translation_events (provider, model);
 
+create index if not exists translation_events_translation_path_idx
+    on public.translation_events (translation_path, created_at desc);
+
+create index if not exists translation_events_used_llm_idx
+    on public.translation_events (used_llm, created_at desc);
+
 alter table public.translation_events enable row level security;
 
 grant usage on schema public to anon, authenticated;
+revoke select, update, delete on public.translation_events from anon, authenticated;
 grant insert on public.translation_events to anon, authenticated;
 
 drop policy if exists "translation_events_insert_only" on public.translation_events;

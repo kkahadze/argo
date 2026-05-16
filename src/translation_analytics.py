@@ -16,6 +16,27 @@ from src.logger import setup_logger
 logger = setup_logger("translation_analytics")
 
 
+def _coerce_bool(value: Any) -> bool:
+    """Coerce JSON-ish metric values into booleans."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    if isinstance(value, (int, float)):
+        return value != 0
+    return False
+
+
+def _coerce_int(value: Any) -> Optional[int]:
+    """Coerce JSON-ish metric values into integers when possible."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _env_flag(name: str, default: bool = False) -> bool:
     """Parse a truthy/falsey environment variable."""
     value = os.getenv(name)
@@ -82,6 +103,52 @@ def infer_response_source(result: Optional[dict[str, Any]] = None) -> str:
     return "unknown"
 
 
+def derive_translation_path_metrics(
+    response_source: Optional[str],
+    prompt_metrics: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Derive query-friendly path fields from response_source and prompt metrics."""
+    metrics = prompt_metrics or {}
+    source = (response_source or "unknown").strip() or "unknown"
+
+    used_llm = _coerce_bool(metrics.get("used_llm")) or source == "llm"
+    used_dictionary_entries = _coerce_bool(metrics.get("has_dictionary_entries"))
+    used_grammar = _coerce_bool(metrics.get("used_grammar") or metrics.get("grammar_included"))
+    used_exact_candidate_shortlist = _coerce_bool(metrics.get("used_exact_candidate_shortlist"))
+    used_evidence_bundle = bool(
+        used_llm
+        and (
+            used_dictionary_entries
+            or used_grammar
+            or used_exact_candidate_shortlist
+        )
+    )
+
+    if source == "llm":
+        if used_evidence_bundle:
+            translation_path = "llm_evidence_bundle"
+        else:
+            translation_path = "llm_direct"
+    else:
+        translation_path = source
+
+    return {
+        "translation_path": translation_path,
+        "used_llm": used_llm,
+        "used_evidence_bundle": used_evidence_bundle,
+        "used_dictionary_entries": used_dictionary_entries,
+        "used_grammar": used_grammar,
+        "used_exact_candidate_shortlist": used_exact_candidate_shortlist,
+        "exact_candidate_count": _coerce_int(metrics.get("exact_candidate_count")),
+        "prompt_characters": _coerce_int(
+            metrics.get("prompt_characters") or metrics.get("prompt_chars")
+        ),
+        "dictionary_entries_characters": _coerce_int(metrics.get("dict_entries_chars")),
+        "grammar_characters": _coerce_int(metrics.get("grammar_chars")),
+        "llm_call_ms": _coerce_int(metrics.get("llm_call_ms")),
+    }
+
+
 def build_translation_event(
     *,
     source_text: str,
@@ -103,6 +170,8 @@ def build_translation_event(
     """Build a JSON-safe analytics payload for Supabase."""
     cleaned_source = source_text or ""
     cleaned_target = target_text or None
+    cleaned_response_source = response_source or "unknown"
+    path_metrics = derive_translation_path_metrics(cleaned_response_source, prompt_metrics)
     return {
         "status": status,
         "source_text": cleaned_source,
@@ -111,7 +180,8 @@ def build_translation_event(
         "target_language": target_language,
         "provider": provider,
         "model": model,
-        "response_source": response_source or "unknown",
+        "response_source": cleaned_response_source,
+        **path_metrics,
         "duration_ms": duration_ms,
         "source_text_length": len(cleaned_source),
         "target_text_length": len(cleaned_target) if cleaned_target is not None else None,

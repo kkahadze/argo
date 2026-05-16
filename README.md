@@ -187,7 +187,8 @@ Located in `fastapi_app/data/`:
 2. **gal.tsv** - Russian-Mingrelian dictionary
 3. **kk.tsv** - Mingrelian-Russian-Georgian dictionary (4 columns: word, IPA, Russian, Georgian)
 4. **context_source.txt** - Large fallback reference used for LLM context, not extractive lookups
-5. **harris.txt** - Grammar reference
+5. **harris.txt** - Full grammar reference
+6. **harris_compact.txt** - Compact grammar reference for prompt-size experiments
 
 ### Optimization Strategies
 
@@ -263,7 +264,8 @@ argo/
 │       ├── gal.tsv
 │       ├── kk.tsv
 │       ├── context_source.txt
-│       └── harris.txt
+│       ├── harris.txt
+│       └── harris_compact.txt
 ├── src/
 │   ├── single_call_translator.py  # Backward-compatible translator facade
 │   ├── translator/                # Translation data, lookup, prompts, extraction, pipeline
@@ -285,6 +287,18 @@ argo/
 ## Development
 
 Promptfoo evaluations use `eval/provider.py`. If an eval config specifies a provider but omits `model`, the provider uses that provider's default model from `src/provider_config.py`; if the provider is also omitted, the eval-specific default provider remains Gemini.
+
+Grammar prompt policy can be compared without LLM calls:
+
+```bash
+python3 eval/run_grammar_policy_eval.py --measure-only --policies full,compact,none
+```
+
+To run the lesson-note promptfoo evals head-to-head, omit `--measure-only`:
+
+```bash
+python3 eval/run_grammar_policy_eval.py --policies full,compact,none --repeat 1
+```
 
 ### Running Tests
 
