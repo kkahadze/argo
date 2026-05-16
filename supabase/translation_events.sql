@@ -3,6 +3,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.translation_events (
     id uuid primary key default gen_random_uuid(),
     created_at timestamptz not null default now(),
+    visitor_id text,
     status text not null check (status in ('success', 'error')),
     source_text text not null,
     target_text text,
@@ -33,8 +34,15 @@ create table if not exists public.translation_events (
     user_agent text
 );
 
+alter table public.translation_events
+    add column if not exists visitor_id text;
+
 create index if not exists translation_events_created_at_idx
     on public.translation_events (created_at desc);
+
+create index if not exists translation_events_visitor_id_created_at_idx
+    on public.translation_events (visitor_id, created_at desc)
+    where visitor_id is not null;
 
 create index if not exists translation_events_status_idx
     on public.translation_events (status);

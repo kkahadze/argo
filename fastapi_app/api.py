@@ -39,6 +39,8 @@ from src.translation_analytics import (
 )
 import re
 
+VISITOR_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
 # Request model
 class PromptIn(BaseModel):
     prompt: str
@@ -47,6 +49,7 @@ class PromptIn(BaseModel):
     target_language: str = DEFAULT_TARGET_LANGUAGE  # Target language: "mingrelian", "georgian", or "english"
     provider: Optional[str] = None  # "openai", "anthropic", or "gemini" (if None, reads from env)
     model: Optional[str] = None  # Optional: specify model name (if None, reads from env)
+    visitor_id: Optional[str] = None  # Anonymous browser identifier for analytics only
 
 # Initialize FastAPI app
 app = FastAPI(title="Mingrelian Translator API")
@@ -72,6 +75,17 @@ def _sse_event(payload: dict) -> str:
 def is_mkhedruli(text: str) -> bool:
     """Check if text contains Georgian Mkhedruli script characters."""
     return bool(re.search('[\u10D0-\u10FF]', text))
+
+
+def normalize_visitor_id(visitor_id: Optional[str]) -> Optional[str]:
+    """Keep only short, opaque browser-generated visitor IDs for analytics."""
+    if not visitor_id:
+        return None
+
+    cleaned = visitor_id.strip()
+    if not VISITOR_ID_PATTERN.fullmatch(cleaned):
+        return None
+    return cleaned
 
 
 def get_server_api_key(provider: str) -> Optional[str]:
@@ -269,6 +283,7 @@ async def stream_translation(
                 duration_ms=int((time.time() - request_started_at) * 1000),
                 response_source=result.get("response_source") or infer_response_source(result),
                 used_user_api_key=used_user_api_key,
+                visitor_id=request_meta.get("visitor_id"),
                 prompt_metrics=result.get("prompt_metrics"),
                 app_origin=request_meta.get("origin"),
                 referer=request_meta.get("referer"),
@@ -293,6 +308,7 @@ async def stream_translation(
                 duration_ms=int((time.time() - request_started_at) * 1000),
                 response_source="credential_error",
                 used_user_api_key=used_user_api_key,
+                visitor_id=request_meta.get("visitor_id"),
                 status="error",
                 error_message=str(e),
                 app_origin=request_meta.get("origin"),
@@ -316,6 +332,7 @@ async def stream_translation(
                 duration_ms=int((time.time() - request_started_at) * 1000),
                 response_source="init_error",
                 used_user_api_key=used_user_api_key,
+                visitor_id=request_meta.get("visitor_id"),
                 status="error",
                 error_message=str(e),
                 app_origin=request_meta.get("origin"),
@@ -345,6 +362,7 @@ async def stream_translation(
                 duration_ms=int((time.time() - request_started_at) * 1000),
                 response_source="translation_error",
                 used_user_api_key=used_user_api_key,
+                visitor_id=request_meta.get("visitor_id"),
                 status="error",
                 error_message=str(e),
                 app_origin=request_meta.get("origin"),
@@ -390,6 +408,8 @@ async def chat(data: PromptIn, request: Request):
         raise HTTPException(status_code=400, detail=f"Target language must be one of: {', '.join(VALID_LANGUAGES)}")
     if data.source_language == data.target_language:
         raise HTTPException(status_code=400, detail="Source and target languages must be different")
+
+    visitor_id = normalize_visitor_id(data.visitor_id)
     
     # Return streaming response
     return StreamingResponse(
@@ -402,6 +422,7 @@ async def chat(data: PromptIn, request: Request):
             model,
             used_user_api_key=bool(data.api_key),
             request_meta={
+                "visitor_id": visitor_id,
                 "origin": request.headers.get("origin"),
                 "referer": request.headers.get("referer"),
                 "user_agent": request.headers.get("user-agent"),
