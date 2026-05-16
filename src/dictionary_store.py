@@ -46,6 +46,14 @@ class KkEntry:
 
 
 @dataclass(frozen=True)
+class TranslationOverride:
+    source_language: str
+    target_language: str
+    source_text: str
+    target_text: str
+
+
+@dataclass(frozen=True)
 class SearchResult:
     output: str
     has_standalone_matches: bool
@@ -271,6 +279,33 @@ def _load_kk_entries(file_path: str, mtime_ns: Optional[int]) -> tuple[KkEntry, 
     return tuple(rows)
 
 
+def _load_translation_overrides(
+    file_path: str,
+    mtime_ns: Optional[int],
+) -> tuple[TranslationOverride, ...]:
+    if mtime_ns is None:
+        return ()
+
+    rows = []
+    for parts in _read_tsv_rows(file_path, 4):
+        source_language, target_language, source_text, target_text = parts[:4]
+        if (
+            normalize_lookup_value(source_language).lstrip("\ufeff") == "source_language"
+            and normalize_lookup_value(target_language) == "target_language"
+        ):
+            continue
+        if source_language and target_language and source_text and target_text:
+            rows.append(
+                TranslationOverride(
+                    source_language=source_language,
+                    target_language=target_language,
+                    source_text=source_text,
+                    target_text=target_text,
+                )
+            )
+    return tuple(rows)
+
+
 def _load_context_entries(file_path: str, mtime_ns: Optional[int]) -> tuple[str, ...]:
     if mtime_ns is None:
         return ()
@@ -321,17 +356,40 @@ def _build_exact_index(rows: tuple, fields: Callable[[object], tuple[str, ...]])
     return {key: tuple(value) for key, value in index.items()}
 
 
+def _translation_override_key(source_language: str, target_language: str, source_text: str) -> str:
+    return "\t".join(
+        (
+            normalize_lookup_value(source_language),
+            normalize_lookup_value(target_language),
+            normalize_lookup_value(source_text),
+        )
+    )
+
+
+def _build_translation_override_index(rows: tuple[TranslationOverride, ...]) -> dict[str, tuple[int, ...]]:
+    index: dict[str, list[int]] = defaultdict(list)
+    for row_index, row in enumerate(rows):
+        _add_index_value(
+            index,
+            _translation_override_key(row.source_language, row.target_language, row.source_text),
+            row_index,
+        )
+    return {key: tuple(value) for key, value in index.items()}
+
+
 class DictionaryStore:
     """Cached dictionary rows plus indexes for common exact/standalone lookups."""
 
     def __init__(
         self,
         *,
+        translation_overrides: tuple[TranslationOverride, ...],
         sentence_pairs: tuple[SentencePair, ...],
         gal_entries: tuple[GalEntry, ...],
         kk_entries: tuple[KkEntry, ...],
         context_key: tuple[str, Optional[int]],
     ) -> None:
+        self.translation_overrides = translation_overrides
         self.sentence_pairs = sentence_pairs
         self.gal_entries = gal_entries
         self.kk_entries = kk_entries
@@ -359,6 +417,7 @@ class DictionaryStore:
         self._kk_mingrelian_exact = _build_exact_index(kk_entries, lambda row: (row.mingrelian,))
         self._kk_russian_exact = _build_exact_index(kk_entries, lambda row: (row.russian,))
         self._kk_georgian_exact = _build_exact_index(kk_entries, lambda row: (row.georgian,))
+        self._translation_override_exact = _build_translation_override_index(translation_overrides)
 
     @property
     def context_entries(self) -> tuple[str, ...]:
@@ -385,6 +444,16 @@ class DictionaryStore:
 
     def exact_kk_georgian(self, text: str) -> tuple[KkEntry, ...]:
         return self._rows_for_exact(self.kk_entries, self._kk_georgian_exact, text)
+
+    def exact_translation_overrides(
+        self,
+        source_language: str,
+        target_language: str,
+        source_text: str,
+    ) -> tuple[TranslationOverride, ...]:
+        key = _translation_override_key(source_language, target_language, source_text)
+        row_indexes = self._translation_override_exact.get(key, ())
+        return tuple(self.translation_overrides[row_index] for row_index in row_indexes)
 
     @lru_cache(maxsize=4096)
     def search_sentence_pairs(self, word: str, *, standalone_only: bool = False) -> SearchResult:
@@ -498,6 +567,7 @@ class DictionaryStore:
 def get_dictionary_store() -> DictionaryStore:
     """Return a cached store, invalidated by source file modification times."""
     return _get_dictionary_store_cached(
+        _data_file_cache_key("translation_overrides.tsv"),
         _data_file_cache_key("sentence_pairs.tsv"),
         _data_file_cache_key("gal.tsv"),
         _data_file_cache_key("kk.tsv"),
@@ -507,12 +577,14 @@ def get_dictionary_store() -> DictionaryStore:
 
 @lru_cache(maxsize=4)
 def _get_dictionary_store_cached(
+    translation_overrides_key: tuple[str, Optional[int]],
     sentence_pairs_key: tuple[str, Optional[int]],
     gal_key: tuple[str, Optional[int]],
     kk_key: tuple[str, Optional[int]],
     context_key: tuple[str, Optional[int]],
 ) -> DictionaryStore:
     return DictionaryStore(
+        translation_overrides=_load_translation_overrides(*translation_overrides_key),
         sentence_pairs=_load_sentence_pairs(*sentence_pairs_key),
         gal_entries=_load_gal_entries(*gal_key),
         kk_entries=_load_kk_entries(*kk_key),

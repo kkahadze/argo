@@ -3,6 +3,7 @@ import unittest
 from src.dictionary_store import get_dictionary_store
 from src.single_call_translator import (
     check_exact_match_simple,
+    collect_exact_match_candidates,
     grep_search_gal,
     grep_search_kk,
 )
@@ -24,6 +25,24 @@ class DictionaryStoreTests(unittest.TestCase):
             check_exact_match_simple("აბაზი", "mingrelian", "georgian"),
             "აბაზი, ოცი კაპიკი",
         )
+
+    def test_translation_overrides_are_language_pair_aware(self):
+        self.assertEqual(
+            check_exact_match_simple("hello", "english", "mingrelian"),
+            "გომორძგუა",
+        )
+        self.assertEqual(
+            check_exact_match_simple("what language is this", "english", "georgian"),
+            "რა ენაა ეს",
+        )
+        self.assertIsNone(
+            check_exact_match_simple("what language is this", "english", "mingrelian")
+        )
+
+        candidates = collect_exact_match_candidates("ეკლესია", "georgian", "mingrelian")
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["target_text"], "ოხვამე")
+        self.assertIn("translation_overrides", candidates[0]["source_name"])
 
     def test_grep_search_contract_is_preserved(self):
         gal_output, gal_has_standalone = grep_search_gal("მა")

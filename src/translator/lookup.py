@@ -92,6 +92,17 @@ def _collect_simple_exact_match_candidates(
     candidates: list[dict[str, str]] = []
     store = get_dictionary_store()
 
+    for row in store.exact_translation_overrides(source_lang, target_lang, input_text):
+        candidates.append(
+            {
+                "source_name": "translation_overrides",
+                "target_text": row.target_text,
+                "headword": row.source_text,
+                "translation": row.target_text,
+                "matched_on": f"{row.source_language}->{row.target_language}",
+            }
+        )
+
     # sentence_pairs.tsv (Mingrelian ↔ English)
     if (source_lang, target_lang) in [("mingrelian", "english"), ("english", "mingrelian")]:
         if source_lang == "mingrelian":
@@ -646,6 +657,10 @@ def check_exact_match_simple(input_text: str, source_lang: str, target_lang: str
     This is the simple direct lookup without Google Translate augmentation.
     """
     store = get_dictionary_store()
+
+    overrides = store.exact_translation_overrides(source_lang, target_lang, input_text)
+    if overrides:
+        return overrides[0].target_text
 
     # Check sentence_pairs.tsv (Mingrelian ↔ English)
     if (source_lang, target_lang) in [("mingrelian", "english"), ("english", "mingrelian")]:
