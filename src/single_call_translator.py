@@ -3,6 +3,8 @@
 Single-call translation system using dictionary lookups and one LLM API call.
 Adapted from explore_rag_dict.ipynb notebook.
 """
+import csv
+import os
 import re
 import string
 from functools import lru_cache
@@ -18,6 +20,7 @@ from src.logger import (
     log_prompt, 
     log_llm_response, 
     log_instant_lookup,
+    log_translation_result,
     log_stage_timing
 )
 import time
@@ -37,6 +40,28 @@ FIGURATIVE_MARKERS = {
     "ru": ("переносное значение", "перен."),
     "ka": ("გადატანილი მნიშვნელობით", "გადატ."),
 }
+
+LOW_VALUE_LOOKUP_TERMS = {
+    "english": {
+        "a", "an", "the", "am", "are", "is", "was", "were", "be", "been", "being",
+        "i", "me", "my", "you", "your", "he", "she", "it", "we", "they", "our",
+        "their", "this", "that", "these", "those", "in", "on", "at", "to", "of",
+        "for", "from", "and", "or",
+    },
+    "georgian": {
+        "მე", "ჩემი", "ჩემს", "ჩემმა", "ვარ", "არის", "არიან", "იყო", "იყოს",
+        "ეს", "ესეც", "ის", "მას", "მასაც", "შენ", "თქვენ", "ჩვენ",
+    },
+}
+
+LOOKUP_SEPARATOR = "========\n"
+MAX_LOOKUP_OUTPUT_CHARS = 10000
+
+
+def _master_lexicon_enabled() -> bool:
+    """Allow master lexicon ablations without editing the core pipeline."""
+    value = os.getenv("ARGO_ENABLE_MASTER_LEXICON", "true").strip().lower()
+    return value not in {"0", "false", "no", "off"}
 
 
 def _normalize_gloss_segment(text: str) -> str:
@@ -135,9 +160,528 @@ def _get_data_path(filename: str) -> str:
     notebooks_dicts = Path(__file__).parent.parent / 'notebooks' / 'dicts' / filename
     if notebooks_dicts.exists():
         return str(notebooks_dicts)
+
+    # Try eval datasets directory
+    eval_datasets = Path(__file__).parent.parent / 'eval' / 'datasets' / filename
+    if eval_datasets.exists():
+        return str(eval_datasets)
     
     # Default to fastapi_app/data
     return str(fastapi_data)
+
+
+def _normalize_lookup_value(text: str) -> str:
+    """Normalize user input and dictionary text for exact-match comparisons."""
+    return re.sub(r"\s+", " ", (text or "").strip()).casefold()
+
+
+def _data_file_cache_key(filename: str) -> tuple[str, Optional[int]]:
+    """Build a cache key that invalidates when a data file changes on disk."""
+    file_path = _get_data_path(filename)
+    try:
+        mtime_ns = Path(file_path).stat().st_mtime_ns
+    except FileNotFoundError:
+        return file_path, None
+    return file_path, mtime_ns
+
+
+@lru_cache(maxsize=4)
+def _load_master_lexicon_rows_cached(
+    file_path: str,
+    mtime_ns: Optional[int],
+) -> tuple[tuple[str, str, str], ...]:
+    """Load and cache the master lexicon while still reloading when the file changes."""
+    if mtime_ns is None:
+        return ()
+
+    with open(file_path, "r", encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        rows = []
+        for row in reader:
+            headword = (row.get("headword") or "").strip()
+            headword_raw = (row.get("headword_raw") or "").strip()
+            translation = (row.get("translation") or "").strip()
+            if not translation or not (headword or headword_raw):
+                continue
+            rows.append((headword, headword_raw, translation))
+    return tuple(rows)
+
+
+def _load_master_lexicon_rows() -> tuple[tuple[str, str, str], ...]:
+    """Load the master lexicon used for exact Mingrelian ↔ English matches."""
+    if not _master_lexicon_enabled():
+        return ()
+    return _load_master_lexicon_rows_cached(*_data_file_cache_key("master-lexicon-mkhedruli.csv"))
+
+
+@lru_cache(maxsize=4)
+def _load_sentence_pairs_rows_cached(
+    file_path: str,
+    mtime_ns: Optional[int],
+) -> tuple[tuple[str, str], ...]:
+    """Load and cache sentence_pairs.tsv while still picking up file edits."""
+    if mtime_ns is None:
+        return ()
+
+    rows = []
+    with open(file_path, "r", encoding="utf-8") as file:
+        for line in file:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 2:
+                continue
+            mingrelian = parts[0].strip()
+            english = parts[1].strip()
+            if mingrelian and english:
+                rows.append((mingrelian, english))
+    return tuple(rows)
+
+
+def _load_sentence_pairs_rows() -> tuple[tuple[str, str], ...]:
+    """Load sentence pairs for extractive Mingrelian ↔ English lookups."""
+    return _load_sentence_pairs_rows_cached(*_data_file_cache_key("sentence_pairs.tsv"))
+
+
+@lru_cache(maxsize=4)
+def _load_gal_rows_cached(
+    file_path: str,
+    mtime_ns: Optional[int],
+) -> tuple[tuple[str, str], ...]:
+    """Load and cache gal.tsv while still picking up file edits."""
+    if mtime_ns is None:
+        return ()
+
+    rows = []
+    with open(file_path, "r", encoding="utf-8") as file:
+        for line in file:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 2:
+                continue
+            russian = parts[0].strip()
+            mingrelian = parts[1].strip()
+            if russian and mingrelian:
+                rows.append((russian, mingrelian))
+    return tuple(rows)
+
+
+def _load_gal_rows() -> tuple[tuple[str, str], ...]:
+    """Load Russian ↔ Mingrelian dictionary rows."""
+    return _load_gal_rows_cached(*_data_file_cache_key("gal.tsv"))
+
+
+@lru_cache(maxsize=4)
+def _load_kk_rows_cached(
+    file_path: str,
+    mtime_ns: Optional[int],
+) -> tuple[tuple[str, str, str, str], ...]:
+    """Load and cache kk.tsv while still picking up file edits."""
+    if mtime_ns is None:
+        return ()
+
+    rows = []
+    with open(file_path, "r", encoding="utf-8") as file:
+        for line in file:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 4:
+                continue
+            mingrelian = parts[0].strip()
+            ipa = parts[1].strip()
+            russian = parts[2].strip()
+            georgian = parts[3].strip()
+            if mingrelian and russian and georgian:
+                rows.append((mingrelian, ipa, russian, georgian))
+    return tuple(rows)
+
+
+def _load_kk_rows() -> tuple[tuple[str, str, str, str], ...]:
+    """Load Mingrelian ↔ Russian/Georgian dictionary rows."""
+    return _load_kk_rows_cached(*_data_file_cache_key("kk.tsv"))
+
+
+@lru_cache(maxsize=4)
+def _load_context_source_entries_cached(
+    file_path: str,
+    mtime_ns: Optional[int],
+) -> tuple[str, ...]:
+    """Load and cache unstructured fallback context blocks."""
+    if mtime_ns is None:
+        return ()
+
+    context_source_text = Path(file_path).read_text(encoding="utf-8")
+    entries = re.split(r"\n\s*\n", context_source_text.strip())
+    return tuple(entry.strip() for entry in entries if entry.strip())
+
+
+def _load_context_source_entries() -> tuple[str, ...]:
+    """Load fallback context blocks from the source-agnostic reference corpus."""
+    return _load_context_source_entries_cached(*_data_file_cache_key("context_source.txt"))
+
+
+def _truncate_lookup_output(output: str) -> str:
+    """Keep lookup payloads bounded before they enter the LLM prompt."""
+    if len(output) > MAX_LOOKUP_OUTPUT_CHARS:
+        return output[:MAX_LOOKUP_OUTPUT_CHARS]
+    return output
+
+
+def _collect_master_lexicon_exact_candidates(
+    input_text: str,
+    source_lang: str,
+    target_lang: str,
+) -> list[dict[str, str]]:
+    """Collect exact-match candidates from the master lexicon."""
+    input_normalized = _normalize_lookup_value(input_text)
+    candidates: list[dict[str, str]] = []
+
+    for headword, headword_raw, translation in _load_master_lexicon_rows():
+
+        matched_fields: list[str] = []
+        if headword and _normalize_lookup_value(headword) == input_normalized:
+            matched_fields.append("headword")
+        if headword_raw and _normalize_lookup_value(headword_raw) == input_normalized:
+            matched_fields.append("headword_raw")
+        if translation and _normalize_lookup_value(translation) == input_normalized:
+            matched_fields.append("translation")
+
+        if not matched_fields:
+            continue
+
+        if source_lang == "mingrelian" and target_lang == "english" and any(
+            field in {"headword", "headword_raw"} for field in matched_fields
+        ):
+            candidates.append(
+                {
+                    "source_name": "master_lexicon",
+                    "target_text": translation,
+                    "headword": headword,
+                    "headword_raw": headword_raw,
+                    "translation": translation,
+                    "matched_on": ", ".join(field for field in matched_fields if field in {"headword", "headword_raw"}),
+                }
+            )
+        elif source_lang == "english" and target_lang == "mingrelian" and "translation" in matched_fields:
+            candidates.append(
+                {
+                    "source_name": "master_lexicon",
+                    "target_text": headword,
+                    "headword": headword,
+                    "headword_raw": headword_raw,
+                    "translation": translation,
+                    "matched_on": "translation",
+                }
+            )
+
+    return candidates
+
+
+def _collect_simple_exact_match_candidates(
+    input_text: str,
+    source_lang: str,
+    target_lang: str,
+) -> list[dict[str, str]]:
+    """Collect exact-match candidates from the existing extractive dictionaries."""
+    input_normalized = _normalize_lookup_value(input_text)
+    candidates: list[dict[str, str]] = []
+
+    # sentence_pairs.tsv (Mingrelian ↔ English)
+    if (source_lang, target_lang) in [("mingrelian", "english"), ("english", "mingrelian")]:
+        for mingrelian, english in _load_sentence_pairs_rows():
+            if source_lang == "mingrelian" and _normalize_lookup_value(mingrelian) == input_normalized:
+                candidates.append(
+                    {
+                        "source_name": "sentence_pairs",
+                        "target_text": english,
+                        "headword": mingrelian,
+                        "translation": english,
+                        "matched_on": "mingrelian",
+                    }
+                )
+            elif source_lang == "english" and _normalize_lookup_value(english) == input_normalized:
+                candidates.append(
+                    {
+                        "source_name": "sentence_pairs",
+                        "target_text": mingrelian,
+                        "headword": mingrelian,
+                        "translation": english,
+                        "matched_on": "english",
+                    }
+                )
+
+    # kk.tsv (Mingrelian ↔ Georgian)
+    for mingrelian, _, russian, georgian in _load_kk_rows():
+        if source_lang == "mingrelian" and target_lang == "georgian":
+            if _normalize_lookup_value(mingrelian) == input_normalized:
+                georgian_primary, _ = _split_figurative_gloss(georgian, "ka")
+                candidates.append(
+                    {
+                        "source_name": "kk.tsv",
+                        "target_text": georgian_primary or georgian,
+                        "headword": mingrelian,
+                        "translation": georgian_primary or georgian,
+                        "matched_on": "mingrelian",
+                    }
+                )
+        elif source_lang == "georgian" and target_lang == "mingrelian":
+            if _normalize_lookup_value(georgian) == input_normalized:
+                candidates.append(
+                    {
+                        "source_name": "kk.tsv",
+                        "target_text": mingrelian,
+                        "headword": mingrelian,
+                        "translation": georgian,
+                        "matched_on": "georgian",
+                    }
+                )
+
+    return candidates
+
+
+def collect_exact_match_candidates(
+    input_text: str,
+    source_lang: str,
+    target_lang: str,
+) -> list[dict[str, str]]:
+    """Collect and deduplicate exact-match candidates across supported lexicon sources."""
+    combined = _collect_simple_exact_match_candidates(input_text, source_lang, target_lang)
+    combined.extend(_collect_master_lexicon_exact_candidates(input_text, source_lang, target_lang))
+
+    deduped: list[dict[str, str]] = []
+    index_by_target: dict[str, int] = {}
+
+    for candidate in combined:
+        target_key = _normalize_lookup_value(candidate.get("target_text", ""))
+        if not target_key:
+            continue
+
+        existing_index = index_by_target.get(target_key)
+        if existing_index is None:
+            merged = dict(candidate)
+            merged["source_name"] = candidate["source_name"]
+            deduped.append(merged)
+            index_by_target[target_key] = len(deduped) - 1
+            continue
+
+        existing = deduped[existing_index]
+        source_names = existing["source_name"].split(", ")
+        if candidate["source_name"] not in source_names:
+            existing["source_name"] = ", ".join(source_names + [candidate["source_name"]])
+
+        if candidate.get("matched_on"):
+            existing_matches = [part.strip() for part in existing.get("matched_on", "").split(",") if part.strip()]
+            for match_part in [part.strip() for part in candidate["matched_on"].split(",") if part.strip()]:
+                if match_part not in existing_matches:
+                    existing_matches.append(match_part)
+            existing["matched_on"] = ", ".join(existing_matches)
+
+        for field in ("headword", "headword_raw", "translation"):
+            if not existing.get(field) and candidate.get(field):
+                existing[field] = candidate[field]
+
+    return deduped
+
+
+def _format_exact_candidate_block(
+    *,
+    input_text: str,
+    source_lang: str,
+    target_lang: str,
+    candidates: list[dict[str, str]],
+) -> str:
+    """Format exact-match candidates for the LLM as a compact high-priority shortlist."""
+    in_label = LANG_LABEL.get(source_lang, source_lang)
+    out_label = LANG_LABEL.get(target_lang, target_lang)
+
+    lines = [
+        f'Exact full-input candidate matches for "{input_text}" ({in_label} → {out_label}):',
+        "These candidates come from exact lexicon matches for the full input, so treat them as high-priority evidence.",
+        "If several candidates are plausible, choose the best fit for the context.",
+        "If the context is weak or absent, prefer the most canonical/default dictionary form over marked or over-specific variants.",
+        "",
+    ]
+
+    for index, candidate in enumerate(candidates[:12], start=1):
+        lines.append(f"Candidate {index}:")
+        if target_lang == "mingrelian":
+            lines.append(f"- Mingrelian: {candidate['target_text']}")
+            if candidate.get("headword_raw"):
+                lines.append(f"- Mingrelian (Latinized): {candidate['headword_raw']}")
+            if candidate.get("translation"):
+                lines.append(f"- English gloss: {candidate['translation']}")
+        elif target_lang == "english":
+            lines.append(f"- English: {candidate['target_text']}")
+            if candidate.get("headword"):
+                lines.append(f"- Mingrelian: {candidate['headword']}")
+            if candidate.get("headword_raw"):
+                lines.append(f"- Mingrelian (Latinized): {candidate['headword_raw']}")
+        elif target_lang == "georgian":
+            lines.append(f"- Georgian: {candidate['target_text']}")
+            if candidate.get("headword"):
+                lines.append(f"- Mingrelian: {candidate['headword']}")
+        else:
+            lines.append(f"- Candidate translation: {candidate['target_text']}")
+
+        if candidate.get("source_name"):
+            lines.append(f"- Source: {candidate['source_name']}")
+        if candidate.get("matched_on"):
+            lines.append(f"- Matched on: {candidate['matched_on']}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def _lookup_variants_for_token(word: str, source_lang: str) -> list[str]:
+    """Generate conservative lookup variants for token-level candidate searches."""
+    cleaned = word.strip(string.punctuation + "“”„’'\"")
+    if not cleaned:
+        return []
+
+    variants = [cleaned]
+
+    if source_lang == "english":
+        lowered = cleaned.casefold()
+        variants.append(lowered)
+        if lowered.endswith("'s") and len(lowered) > 2:
+            variants.append(lowered[:-2])
+        if lowered.endswith("ies") and len(lowered) > 4:
+            variants.append(lowered[:-3] + "y")
+        elif lowered.endswith("s") and len(lowered) > 3 and not lowered.endswith("ss"):
+            variants.append(lowered[:-1])
+
+    elif source_lang == "georgian":
+        if cleaned.endswith("ები") and len(cleaned) > 4:
+            stem = cleaned[:-3]
+            variants.extend([stem, stem + "ი"])
+        if cleaned.endswith("ში") and len(cleaned) > 3:
+            stem = cleaned[:-2]
+            variants.extend([stem, stem + "ი"])
+
+    deduped: list[str] = []
+    seen = set()
+    for variant in variants:
+        normalized = variant.strip()
+        if normalized and normalized not in seen:
+            deduped.append(normalized)
+            seen.add(normalized)
+    return deduped
+
+
+def _collect_token_exact_candidates(word: str, source_lang: str, target_lang: str) -> list[dict[str, str]]:
+    """Collect and deduplicate compact exact candidates for a single token."""
+    combined: list[dict[str, str]] = []
+    for variant in _lookup_variants_for_token(word, source_lang):
+        combined.extend(collect_exact_match_candidates(variant, source_lang, target_lang))
+
+    deduped: list[dict[str, str]] = []
+    seen_targets: set[str] = set()
+    for candidate in combined:
+        target_key = _normalize_lookup_value(candidate.get("target_text", ""))
+        if not target_key or target_key in seen_targets:
+            continue
+        deduped.append(candidate)
+        seen_targets.add(target_key)
+    return deduped
+
+
+def _format_token_candidate_block(
+    *,
+    token: str,
+    source_lang: str,
+    candidates: list[dict[str, str]],
+) -> str:
+    """Format a small candidate list for a single source token."""
+    source_label = LANG_LABEL.get(source_lang, source_lang)
+    lines = [
+        f'Candidate translations for token "{token}" ({source_label} → Mingrelian):',
+        "Treat these as lexicon candidates for this token, not as a full-sentence translation.",
+        "",
+    ]
+
+    for index, candidate in enumerate(candidates[:6], start=1):
+        lines.append(f"Candidate {index}:")
+        lines.append(f"- Mingrelian: {candidate['target_text']}")
+        if candidate.get("headword_raw"):
+            lines.append(f"- Mingrelian (Latinized): {candidate['headword_raw']}")
+        if candidate.get("translation"):
+            lines.append(f"- Gloss: {candidate['translation']}")
+        if candidate.get("matched_on"):
+            lines.append(f"- Matched on: {candidate['matched_on']}")
+        if candidate.get("source_name"):
+            lines.append(f"- Source: {candidate['source_name']}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def _is_low_value_lookup_term(word: str, source_lang: str, token_count: int) -> bool:
+    """Skip high-frequency function words in multi-word lookup contexts."""
+    if token_count <= 1:
+        return False
+
+    normalized = _normalize_lookup_value(word)
+    return normalized in LOW_VALUE_LOOKUP_TERMS.get(source_lang, set())
+
+
+def _build_high_resource_to_mingrelian_dict_entries(
+    sentence: str,
+    *,
+    input_lang: str,
+    lookup_fn: Callable[[str], str],
+) -> str:
+    """
+    Build higher-signal prompt context for English/Georgian -> Mingrelian.
+
+    Strategy:
+    - Prefer compact exact candidate lists for meaningful tokens.
+    - Skip low-value function words unless they have exact candidates.
+    - For English inputs, translate the full sentence to Georgian once and use that
+      bridge sentence for token lookup, which preserves word-sense better than
+      translating each English token independently.
+    """
+    lookup_sentence = sentence
+    lookup_source_lang = input_lang
+    effective_lookup_fn = lookup_fn
+    blocks: list[str] = []
+
+    if input_lang == "english" and GoogleTranslator is not None:
+        try:
+            georgian_bridge = GoogleTranslator(source="en", target="ka").translate(sentence)
+        except Exception:
+            georgian_bridge = ""
+        if georgian_bridge:
+            lookup_sentence = georgian_bridge
+            lookup_source_lang = "georgian"
+            effective_lookup_fn = grep_search_from_georgian
+            blocks.append(
+                "High-resource bridge translation of the full input for sense disambiguation:\n"
+                f"- Georgian: {georgian_bridge}\n"
+                "Use this only as context; the final answer must still be Mingrelian."
+            )
+
+    tokens = [
+        word.strip(string.punctuation + "“”„’'\"")
+        for word in lookup_sentence.split()
+        if word.strip(string.punctuation + "“”„’'\"")
+    ]
+
+    for token in tokens:
+        exact_candidates = _collect_token_exact_candidates(token, lookup_source_lang, "mingrelian")
+        if exact_candidates:
+            blocks.append(
+                _format_token_candidate_block(
+                    token=token,
+                    source_lang=lookup_source_lang,
+                    candidates=exact_candidates,
+                )
+            )
+            continue
+
+        if _is_low_value_lookup_term(token, lookup_source_lang, len(tokens)):
+            continue
+
+        token_lookup = effective_lookup_fn(token)
+        if token_lookup and token_lookup.strip():
+            blocks.append(token_lookup)
+
+    return "\n".join(block.strip() for block in blocks if block and block.strip())
 
 
 def _is_standalone_match(text: str, word: str) -> bool:
@@ -210,39 +754,26 @@ def grep_search_pairs(word: str, *, standalone_only: bool = False) -> tuple[str,
     Search sentence_pairs.tsv for English translations, prioritizing standalone word matches.
     Returns: (result_string, has_standalone_matches)
     """
-    file_path = _get_data_path("sentence_pairs.tsv")
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            lines = file.readlines()
-    except FileNotFoundError:
+    rows = _load_sentence_pairs_rows()
+    if not rows:
         return "", False
     
     # First pass: look for standalone word matches
-    standalone_output = "========\n"
-    substring_output = "========\n"
+    standalone_output = LOOKUP_SEPARATOR
+    substring_output = LOOKUP_SEPARATOR
     
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 2:
-            mingrelian, english = parts[0], parts[1]
-            if mingrelian and english:
-                # Check if word appears as standalone in either mingrelian or english
-                if _is_standalone_match(mingrelian, word) or _is_standalone_match(english, word):
-                    standalone_output += "Mingrelian: " + mingrelian + "\n"
-                    standalone_output += "English: " + english
-                    standalone_output += "========\n"
-                elif _is_substring_match(line, word):
-                    # Word appears as substring
-                    substring_output += "Mingrelian: " + mingrelian + "\n"
-                    substring_output += "English: " + english
-                    substring_output += "========\n"
+    for mingrelian, english in rows:
+        entry = f"Mingrelian: {mingrelian}\nEnglish: {english}\n{LOOKUP_SEPARATOR}"
+        if _is_standalone_match(mingrelian, word) or _is_standalone_match(english, word):
+            standalone_output += entry
+        elif _is_substring_match(f"{mingrelian}\t{english}", word):
+            substring_output += entry
     
     # Return standalone matches if found, otherwise substring matches (unless standalone_only)
-    if standalone_output != "========\n":
-        return standalone_output, True
-    elif (not standalone_only) and substring_output != "========\n":
-        return substring_output, False
+    if standalone_output != LOOKUP_SEPARATOR:
+        return _truncate_lookup_output(standalone_output), True
+    elif (not standalone_only) and substring_output != LOOKUP_SEPARATOR:
+        return _truncate_lookup_output(substring_output), False
     return "", False
 
 
@@ -252,39 +783,28 @@ def grep_search_gal(word: str, *, standalone_only: bool = False) -> tuple[str, b
     Search gal.tsv for Russian translations, prioritizing standalone word matches.
     Returns: (result_string, has_standalone_matches)
     """
-    file_path = _get_data_path("gal.tsv")
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            lines = file.readlines()
-    except FileNotFoundError:
+    rows = _load_gal_rows()
+    if not rows:
         return "", False
     
     # First pass: look for standalone word matches
-    standalone_output = "========\n"
-    substring_output = "========\n"
+    standalone_output = LOOKUP_SEPARATOR
+    substring_output = LOOKUP_SEPARATOR
     
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 2:
-            russian, mingrelian = parts[0], parts[1]
-            if mingrelian and russian:
-                # Check if word appears as standalone
-                if _is_standalone_match(mingrelian, word) or _is_standalone_match(russian, word):
-                    standalone_output += "Mingrelian: " + mingrelian
-                    standalone_output += "Russian: " + russian + "\n"
-                    standalone_output += "========\n"
-                elif _is_substring_match(line, word) or _is_substring_match(line, word.lower()):
-                    # Word appears as substring
-                    substring_output += "Mingrelian: " + mingrelian
-                    substring_output += "Russian: " + russian + "\n"
-                    substring_output += "========\n"
+    lowered_word = word.lower()
+    for russian, mingrelian in rows:
+        entry = f"Mingrelian: {mingrelian}\nRussian: {russian}\n{LOOKUP_SEPARATOR}"
+        haystack = f"{russian}\t{mingrelian}"
+        if _is_standalone_match(mingrelian, word) or _is_standalone_match(russian, word):
+            standalone_output += entry
+        elif _is_substring_match(haystack, word) or _is_substring_match(haystack, lowered_word):
+            substring_output += entry
     
     # Return standalone matches if found, otherwise substring matches (unless standalone_only)
-    if standalone_output != "========\n":
-        return standalone_output, True
-    elif (not standalone_only) and substring_output != "========\n":
-        return substring_output, False
+    if standalone_output != LOOKUP_SEPARATOR:
+        return _truncate_lookup_output(standalone_output), True
+    elif (not standalone_only) and substring_output != LOOKUP_SEPARATOR:
+        return _truncate_lookup_output(substring_output), False
     return "", False
 
 
@@ -294,44 +814,32 @@ def grep_search_kk(word: str, *, standalone_only: bool = False) -> tuple[str, bo
     Search kk.tsv for Russian and Georgian translations, prioritizing standalone word matches.
     Returns: (result_string, has_standalone_matches)
     """
-    file_path = _get_data_path("kk.tsv")
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            lines = file.readlines()
-    except FileNotFoundError:
+    rows = _load_kk_rows()
+    if not rows:
         return "", False
     
     # First pass: look for standalone word matches
-    standalone_output = "========\n"
-    substring_output = "========\n"
+    standalone_output = LOOKUP_SEPARATOR
+    substring_output = LOOKUP_SEPARATOR
+    lowered_word = word.lower()
     
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 4:
-            mingrelian, ipa, russian, georgian = parts[0], parts[1], parts[2], parts[3]
-            if mingrelian and russian and georgian:
-                formatted_entry = _format_kk_entry(
-                    mingrelian.strip(),
-                    russian.strip(),
-                    georgian.strip(),
-                )
-                # Check if word appears as standalone
-                if (_is_standalone_match(mingrelian, word) or 
-                    _is_standalone_match(russian, word) or 
-                    _is_standalone_match(georgian, word)):
-                    standalone_output += formatted_entry + "\n"
-                    standalone_output += "========\n"
-                elif _is_substring_match(line, word) or _is_substring_match(line, word.lower()):
-                    # Word appears as substring
-                    substring_output += formatted_entry + "\n"
-                    substring_output += "========\n"
+    for mingrelian, ipa, russian, georgian in rows:
+        formatted_entry = _format_kk_entry(mingrelian, russian, georgian)
+        haystack = "\t".join((mingrelian, ipa, russian, georgian))
+        if (
+            _is_standalone_match(mingrelian, word)
+            or _is_standalone_match(russian, word)
+            or _is_standalone_match(georgian, word)
+        ):
+            standalone_output += formatted_entry + "\n" + LOOKUP_SEPARATOR
+        elif _is_substring_match(haystack, word) or _is_substring_match(haystack, lowered_word):
+            substring_output += formatted_entry + "\n" + LOOKUP_SEPARATOR
     
     # Return standalone matches if found, otherwise substring matches (unless standalone_only)
-    if standalone_output != "========\n":
-        return standalone_output, True
-    elif (not standalone_only) and substring_output != "========\n":
-        return substring_output, False
+    if standalone_output != LOOKUP_SEPARATOR:
+        return _truncate_lookup_output(standalone_output), True
+    elif (not standalone_only) and substring_output != LOOKUP_SEPARATOR:
+        return _truncate_lookup_output(substring_output), False
     return "", False
 
 
@@ -342,34 +850,29 @@ def grep_search_context_source(word: str, *, standalone_only: bool = False) -> s
     Splits text by empty lines and returns the block containing the search term.
     Prioritizes standalone word matches over substring matches.
     """
-    file_path = _get_data_path("context_source.txt")
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            context_source_text = file.read()
-    except FileNotFoundError:
+    entries = _load_context_source_entries()
+    if not entries:
         return ""
     
-    entries = re.split(r'\n\s*\n', context_source_text.strip())
-    
     # First pass: look for standalone word matches
-    standalone_output = "========\n"
-    substring_output = "========\n"
+    standalone_output = LOOKUP_SEPARATOR
+    substring_output = LOOKUP_SEPARATOR
     
     for entry in entries:
         if _is_standalone_match(entry, word):
             # Standalone match found
             standalone_output += entry.strip()
-            standalone_output += "\n========\n"
+            standalone_output += "\n" + LOOKUP_SEPARATOR
         elif _is_substring_match(entry, word):
             # Substring match
             substring_output += entry.strip()
-            substring_output += "\n========\n"
+            substring_output += "\n" + LOOKUP_SEPARATOR
     
     # Return standalone matches if found, otherwise substring matches (unless standalone_only)
-    if standalone_output != "========\n":
-        return standalone_output
-    elif (not standalone_only) and substring_output != "========\n":
-        return substring_output
+    if standalone_output != LOOKUP_SEPARATOR:
+        return _truncate_lookup_output(standalone_output)
+    elif (not standalone_only) and substring_output != LOOKUP_SEPARATOR:
+        return _truncate_lookup_output(substring_output)
     return ""
 
 
@@ -409,10 +912,7 @@ def grep_search_from_english(word: str) -> str:
     if not has_any_standalone:
         output += grep_search_context_source(res_ge)
 
-    if len(output) > 10000:
-        return output[:10000]
-
-    return output
+    return _truncate_lookup_output(output)
 
 
 def grep_search_from_mingrelian(word: str) -> str:
@@ -646,10 +1146,7 @@ def grep_search_from_mingrelian(word: str) -> str:
                 output += output2
                 break
 
-    if len(output) > 10000:
-        return output[:10000]
-    
-    return output
+    return _truncate_lookup_output(output)
 
 
 def grep_search_from_georgian(word: str) -> str:
@@ -685,25 +1182,48 @@ def grep_search_from_georgian(word: str) -> str:
     if not has_any_standalone:
         output += grep_search_context_source(word)
 
-    if len(output) > 10000:
-        return output[:10000]
-    return output
+    return _truncate_lookup_output(output)
+
+
+@lru_cache(maxsize=4)
+def _load_grammar_cached(path: str, mtime_ns: Optional[int]) -> str:
+    """Load and cache grammar text, invalidating automatically when it changes."""
+    if mtime_ns is None:
+        return ""
+    return Path(path).read_text(encoding="utf-8")
 
 
 def _load_grammar(path: Optional[str] = None) -> str:
     """Load the Mingrelian grammar file."""
     if path is None:
-        path = _get_data_path("harris.txt")
-    
+        path, mtime_ns = _data_file_cache_key("harris.txt")
+    else:
+        try:
+            mtime_ns = Path(path).stat().st_mtime_ns
+        except FileNotFoundError:
+            return ""
+
     try:
-        with open(path, "r", encoding='utf-8') as file:
-            return file.read()
+        return _load_grammar_cached(path, mtime_ns)
     except FileNotFoundError:
         return ""
 
 
-def _build_dict_entries(sentence: str, lookup_fn: Callable[[str], str]) -> str:
+def _build_dict_entries(
+    sentence: str,
+    *,
+    input_lang: str,
+    output_lang: str,
+    lookup_fn: Callable[[str], str],
+) -> str:
     """Build dictionary entries by looking up each word in the sentence."""
+    if output_lang == "mingrelian" and input_lang in {"english", "georgian"}:
+        return _build_high_resource_to_mingrelian_dict_entries(
+            sentence,
+            input_lang=input_lang,
+            lookup_fn=lookup_fn,
+        )
+
     dict_entries = ""
     for word in sentence.split():
         cleaned_word = word.strip(string.punctuation)
@@ -717,6 +1237,7 @@ def _construct_translation_prompt(
     input_lang: str,
     output_lang: str,
     sentence: str,
+    exact_candidates_block: str,
     dict_entries: str,
     grammar: str,
 ) -> str:
@@ -735,7 +1256,21 @@ The dictionary may have definitions in Russian, Georgian, or English.'''
     if grammar:
         prompt += f''' I will also provide you with Mingrelian grammar information, describing the morphological and syntactual patterns of Mingrelian.'''
     
-    prompt += f'''
+    if exact_candidates_block:
+        prompt += f'''
+Please use these resources to aid you in your translation.
+
+You will translate the following phrase/sentence: "{sentence}". Return any notes you want, then end with:
+<<<TRANSLATION>>>
+FINAL_TRANSLATION_HERE
+<<<END_TRANSLATION>>>
+
+Here are exact candidate translations for the full input. Treat these as high-priority evidence:
+
+{exact_candidates_block}
+'''
+    else:
+        prompt += f'''
 
 Please use these resources to aid you in your translation.
 
@@ -743,6 +1278,10 @@ You will translate the following phrase/sentence: "{sentence}". Return any notes
 <<<TRANSLATION>>>
 FINAL_TRANSLATION_HERE
 <<<END_TRANSLATION>>>
+'''
+
+    if dict_entries and dict_entries.strip():
+        prompt += f'''
 
 Here are some various dictionary entries for word(s) in that phrase:
 
@@ -776,14 +1315,21 @@ def _construct_prompt(
     *, 
     input_lang: str, 
     output_lang: str, 
-    lookup_fn: Callable[[str], str]
+    lookup_fn: Callable[[str], str],
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
 ) -> str:
     """Construct a prompt for translation."""
-    dict_entries = _build_dict_entries(sentence, lookup_fn)
+    dict_entries = "" if skip_word_lookups else _build_dict_entries(
+        sentence,
+        input_lang=input_lang,
+        output_lang=output_lang,
+        lookup_fn=lookup_fn,
+    )
     
     # Only load the massive grammar file if we actually have dictionary entries
     # Otherwise use simplified prompt (saves ~96K tokens and 40+ seconds!)
-    if dict_entries and dict_entries.strip():
+    if (dict_entries and dict_entries.strip()) or (exact_candidates_block and exact_candidates_block.strip()):
         grammar = _load_grammar()
     else:
         grammar = ""
@@ -792,48 +1338,77 @@ def _construct_prompt(
         input_lang=input_lang,
         output_lang=output_lang,
         sentence=sentence,
+        exact_candidates_block=exact_candidates_block,
         dict_entries=dict_entries,
         grammar=grammar,
     )
 
 
-def construct_prompt_from_mingrelian_to_english(mingrelian_sentence: str) -> str:
+def construct_prompt_from_mingrelian_to_english(
+    mingrelian_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+) -> str:
     """Construct prompt for Mingrelian → English translation."""
     return _construct_prompt(
         mingrelian_sentence,
         input_lang="mingrelian",
         output_lang="english",
         lookup_fn=grep_search_from_mingrelian,
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
     )
 
 
-def construct_prompt_from_english_to_mingrelian(english_sentence: str) -> str:
+def construct_prompt_from_english_to_mingrelian(
+    english_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+) -> str:
     """Construct prompt for English → Mingrelian translation."""
     return _construct_prompt(
         english_sentence,
         input_lang="english",
         output_lang="mingrelian",
         lookup_fn=grep_search_from_english,
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
     )
 
 
-def construct_prompt_from_georgian_to_mingrelian(georgian_sentence: str) -> str:
+def construct_prompt_from_georgian_to_mingrelian(
+    georgian_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+) -> str:
     """Construct prompt for Georgian → Mingrelian translation."""
     return _construct_prompt(
         georgian_sentence,
         input_lang="georgian",
         output_lang="mingrelian",
         lookup_fn=grep_search_from_georgian,
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
     )
 
 
-def construct_prompt_from_mingrelian_to_georgian(mingrelian_sentence: str) -> str:
+def construct_prompt_from_mingrelian_to_georgian(
+    mingrelian_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+) -> str:
     """Construct prompt for Mingrelian → Georgian translation."""
     return _construct_prompt(
         mingrelian_sentence,
         input_lang="mingrelian",
         output_lang="georgian",
         lookup_fn=grep_search_from_mingrelian,
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
     )
 
 
@@ -853,72 +1428,46 @@ def check_exact_match_simple(input_text: str, source_lang: str, target_lang: str
     
     This is the simple direct lookup without Google Translate augmentation.
     """
-    input_lower = input_text.lower().strip()
+    input_normalized = _normalize_lookup_value(input_text)
     
     # Check sentence_pairs.tsv (Mingrelian ↔ English)
     if (source_lang, target_lang) in [("mingrelian", "english"), ("english", "mingrelian")]:
-        try:
-            file_path = _get_data_path("sentence_pairs.tsv")
-            with open(file_path, 'r', encoding='utf-8') as file:
-                for line in file:
-                    parts = line.strip().split("\t")
-                    if len(parts) >= 2:
-                        mingrelian, english = parts[0].strip(), parts[1].strip()
-                        if source_lang == "mingrelian" and mingrelian.lower() == input_lower:
-                            return english
-                        elif source_lang == "english" and english.lower() == input_lower:
-                            return mingrelian
-        except FileNotFoundError:
-            pass
+        for mingrelian, english in _load_sentence_pairs_rows():
+            if source_lang == "mingrelian" and _normalize_lookup_value(mingrelian) == input_normalized:
+                return english
+            elif source_lang == "english" and _normalize_lookup_value(english) == input_normalized:
+                return mingrelian
     
     # Check kk.tsv (Mingrelian ↔ Russian ↔ Georgian)
-    try:
-        file_path = _get_data_path("kk.tsv")
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                parts = line.strip().split("\t")
-                if len(parts) >= 4:
-                    mingrelian, ipa, russian, georgian = parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
-                    
-                    # Mingrelian → Georgian
-                    if source_lang == "mingrelian" and target_lang == "georgian":
-                        if mingrelian.lower() == input_lower:
-                            georgian_primary, _ = _split_figurative_gloss(georgian, "ka")
-                            return georgian_primary or georgian
-                    
-                    # Georgian → Mingrelian
-                    elif source_lang == "georgian" and target_lang == "mingrelian":
-                        if georgian.lower() == input_lower:
-                            return mingrelian
-                    
-                    # Mingrelian → English
-                    elif source_lang == "mingrelian" and target_lang == "english":
-                        if mingrelian.lower() == input_lower:
-                            # We don't have English in kk, skip
-                            pass
-    except FileNotFoundError:
-        pass
+    for mingrelian, ipa, russian, georgian in _load_kk_rows():
+        # Mingrelian → Georgian
+        if source_lang == "mingrelian" and target_lang == "georgian":
+            if _normalize_lookup_value(mingrelian) == input_normalized:
+                georgian_primary, _ = _split_figurative_gloss(georgian, "ka")
+                return georgian_primary or georgian
+
+        # Georgian → Mingrelian
+        elif source_lang == "georgian" and target_lang == "mingrelian":
+            if _normalize_lookup_value(georgian) == input_normalized:
+                return mingrelian
+
+        # Mingrelian → English
+        elif source_lang == "mingrelian" and target_lang == "english":
+            if _normalize_lookup_value(mingrelian) == input_normalized:
+                # We don't have English in kk, skip
+                pass
     
     # Check gal.tsv (Russian ↔ Mingrelian)
-    try:
-        file_path = _get_data_path("gal.tsv")
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                parts = line.strip().split("\t")
-                if len(parts) >= 2:
-                    russian, mingrelian = parts[0].strip(), parts[1].strip()
-                    
-                    # Russian → Mingrelian
-                    if source_lang == "russian" and target_lang == "mingrelian":
-                        if russian.lower() == input_lower:
-                            return mingrelian
-                    
-                    # Mingrelian → Russian
-                    elif source_lang == "mingrelian" and target_lang == "russian":
-                        if mingrelian.lower() == input_lower:
-                            return russian
-    except FileNotFoundError:
-        pass
+    for russian, mingrelian in _load_gal_rows():
+        # Russian → Mingrelian
+        if source_lang == "russian" and target_lang == "mingrelian":
+            if _normalize_lookup_value(russian) == input_normalized:
+                return mingrelian
+
+        # Mingrelian → Russian
+        elif source_lang == "mingrelian" and target_lang == "russian":
+            if _normalize_lookup_value(mingrelian) == input_normalized:
+                return russian
     
     return None
 
@@ -936,59 +1485,35 @@ def find_mingrelian_in_dicts(text: str, target_lang: Optional[str] = None) -> Op
     Returns:
         tuple or None: (mingrelian_text, other_lang_text, lang_code) if found
     """
-    text_lower = text.lower().strip()
+    text_normalized = _normalize_lookup_value(text)
     
     # Priority 1: Search sentence_pairs.tsv (English ↔ Mingrelian, cleanest)
-    try:
-        file_path = _get_data_path("sentence_pairs.tsv")
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                parts = line.strip().split("\t")
-                if len(parts) >= 2:
-                    mingrelian, english = parts[0].strip(), parts[1].strip()
-                    if mingrelian.lower() == text_lower:
-                        return (mingrelian, english, "en")
-                    elif english.lower() == text_lower:
-                        return (mingrelian, english, "en")
-    except FileNotFoundError:
-        pass
+    for mingrelian, english in _load_sentence_pairs_rows():
+        if _normalize_lookup_value(mingrelian) == text_normalized:
+            return (mingrelian, english, "en")
+        elif _normalize_lookup_value(english) == text_normalized:
+            return (mingrelian, english, "en")
     
     # Priority 2: Search gal.tsv (Russian ↔ Mingrelian, reliable)
-    try:
-        file_path = _get_data_path("gal.tsv")
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                parts = line.strip().split("\t")
-                if len(parts) >= 2:
-                    russian, mingrelian = parts[0].strip(), parts[1].strip()
-                    if mingrelian.lower() == text_lower:
-                        return (mingrelian, russian, "ru")
-                    elif russian.lower() == text_lower:
-                        return (mingrelian, russian, "ru")
-    except FileNotFoundError:
-        pass
+    for russian, mingrelian in _load_gal_rows():
+        if _normalize_lookup_value(mingrelian) == text_normalized:
+            return (mingrelian, russian, "ru")
+        elif _normalize_lookup_value(russian) == text_normalized:
+            return (mingrelian, russian, "ru")
     
     # Priority 3: Search kk.tsv (may have data quality issues, use as fallback)
-    try:
-        file_path = _get_data_path("kk.tsv")
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                parts = line.strip().split("\t")
-                if len(parts) >= 4:
-                    mingrelian, ipa, russian, georgian = parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
-                    if mingrelian.lower() == text_lower:
-                        bridge_text, lang_code = _choose_kk_bridge_gloss(russian, georgian, target_lang)
-                        if bridge_text and lang_code:
-                            return (mingrelian, bridge_text, lang_code)
-                        return (mingrelian, georgian, "ka")
-                    elif georgian.lower() == text_lower:
-                        georgian_primary, _ = _split_figurative_gloss(georgian, "ka")
-                        return (mingrelian, georgian_primary or georgian, "ka")
-                    elif russian.lower() == text_lower:
-                        russian_primary, _ = _split_figurative_gloss(russian, "ru")
-                        return (mingrelian, russian_primary or russian, "ru")
-    except FileNotFoundError:
-        pass
+    for mingrelian, ipa, russian, georgian in _load_kk_rows():
+        if _normalize_lookup_value(mingrelian) == text_normalized:
+            bridge_text, lang_code = _choose_kk_bridge_gloss(russian, georgian, target_lang)
+            if bridge_text and lang_code:
+                return (mingrelian, bridge_text, lang_code)
+            return (mingrelian, georgian, "ka")
+        elif _normalize_lookup_value(georgian) == text_normalized:
+            georgian_primary, _ = _split_figurative_gloss(georgian, "ka")
+            return (mingrelian, georgian_primary or georgian, "ka")
+        elif _normalize_lookup_value(russian) == text_normalized:
+            russian_primary, _ = _split_figurative_gloss(russian, "ru")
+            return (mingrelian, russian_primary or russian, "ru")
     
     return None
 
@@ -1038,11 +1563,25 @@ def check_exact_match_with_google_translate(input_text: str, source_lang: str, t
         except Exception:
             pass  # If translation fails, continue with what we have
         
-        # Search for each translated version in dictionaries
+        # Search for each translated version in dictionaries. Prefer the richer
+        # exact-candidate collector so bridged variants can benefit from the
+        # master lexicon without forcing an arbitrary ambiguous return.
         for translated_text, lang in translations_to_try:
+            exact_candidates = collect_exact_match_candidates(translated_text, lang, "mingrelian")
+            if len(exact_candidates) == 1:
+                match = exact_candidates[0]["target_text"]
+                logger.info(
+                    f"[GOOGLE BRIDGE TO MINGRELIAN] {input_text} ({source_lang}) → "
+                    f"{translated_text} ({lang}) → {match} (mingrelian)"
+                )
+                return match
+
             match = check_exact_match_simple(translated_text, lang, "mingrelian")
             if match:
-                print(f"[GOOGLE BRIDGE TO MINGRELIAN] {input_text} ({source_lang}) → {translated_text} ({lang}) → {match} (mingrelian)")
+                logger.info(
+                    f"[GOOGLE BRIDGE TO MINGRELIAN] {input_text} ({source_lang}) → "
+                    f"{translated_text} ({lang}) → {match} (mingrelian)"
+                )
                 return match
     
     # SCENARIO 2: Translating FROM Mingrelian to high-resource language
@@ -1062,7 +1601,12 @@ def check_exact_match_with_google_translate(input_text: str, source_lang: str, t
             found_lang = lang_map.get(lang_code)
             
             if found_lang == target_lang:
-                print(f"[DIRECT DICT MATCH] {mingrelian_text} (mingrelian) → {other_lang_text} ({target_lang})")
+                logger.info(
+                    "[DIRECT DICT MATCH] %s (mingrelian) → %s (%s)",
+                    mingrelian_text,
+                    other_lang_text,
+                    target_lang,
+                )
                 return other_lang_text
             
             # Otherwise, Google Translate from found language to target
@@ -1075,11 +1619,18 @@ def check_exact_match_with_google_translate(input_text: str, source_lang: str, t
                     return None
                 
                 translated = GoogleTranslator(source=lang_code, target=target_code).translate(other_lang_text)
-                print(f"[GOOGLE BRIDGE FROM MINGRELIAN] {mingrelian_text} (mingrelian) → {other_lang_text} ({lang_code}) → {translated} ({target_code})")
+                logger.info(
+                    "[GOOGLE BRIDGE FROM MINGRELIAN] %s (mingrelian) → %s (%s) → %s (%s)",
+                    mingrelian_text,
+                    other_lang_text,
+                    lang_code,
+                    translated,
+                    target_code,
+                )
                 return translated
             
             except Exception as e:
-                print(f"[GOOGLE BRIDGE ERROR] Failed to translate: {e}")
+                logger.warning("[GOOGLE BRIDGE ERROR] Failed to translate: %s", e)
                 pass
     
     return None
@@ -1095,14 +1646,64 @@ def extract_translation(response_text: str) -> str:
     Returns:
         str: The extracted translation, or the full response if markers not found
     """
-    # Look for content between <<<TRANSLATION>>> and <<<END_TRANSLATION>>>
-    match = re.search(r'<<<TRANSLATION>>>\s*(.*?)\s*<<<END_TRANSLATION>>>', 
-                     response_text, re.DOTALL)
-    
+    def _clean_extracted_text(text: str) -> str:
+        lines = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line in {"<<<TRANSLATION>>>", "<<<END_TRANSLATION>>>"}:
+                continue
+            if re.fullmatch(r"FINAL_TRANSLATION_HERE[:\-\s]*", line, re.IGNORECASE):
+                continue
+            if re.fullmatch(r"(Final\s+)?Translation\s*:\s*", line, re.IGNORECASE):
+                continue
+            line = re.sub(r"^(Final\s+)?Translation\s*:\s*", "", line, flags=re.IGNORECASE)
+            lines.append(line.strip("`\"' "))
+
+        cleaned = "\n".join(line for line in lines if line).strip()
+        return cleaned
+
+    # Primary path: content between explicit translation markers.
+    match = re.search(
+        r'<<<TRANSLATION>>>\s*(.*?)\s*<<<END_TRANSLATION>>>',
+        response_text,
+        re.DOTALL,
+    )
     if match:
-        return match.group(1).strip()
-    
-    # Fallback: return the full response if markers not found
+        cleaned = _clean_extracted_text(match.group(1))
+        if cleaned:
+            return cleaned
+
+    # Secondary path: content after a translation marker if the model omitted the closing marker.
+    trailing_marker_match = re.search(r'<<<TRANSLATION>>>\s*(.*)$', response_text, re.DOTALL)
+    if trailing_marker_match:
+        cleaned = _clean_extracted_text(trailing_marker_match.group(1))
+        if cleaned:
+            return cleaned
+
+    # Tertiary path: recover from models that ignore the markers but provide a final label.
+    label_matches = re.findall(
+        r'(?im)^(?:final\s+translation|translation)\s*:\s*(.+)$',
+        response_text,
+    )
+    if label_matches:
+        cleaned = _clean_extracted_text(label_matches[-1])
+        if cleaned:
+            return cleaned
+
+    # Final fallback: use the last non-empty, non-marker line rather than the whole response blob.
+    fallback_lines = [
+        line.strip("`\"' ")
+        for line in response_text.splitlines()
+        if line.strip()
+        and "<<<TRANSLATION>>>" not in line
+        and "<<<END_TRANSLATION>>>" not in line
+        and "FINAL_TRANSLATION_HERE" not in line
+    ]
+    if fallback_lines:
+        return fallback_lines[-1]
+
     return response_text.strip()
 
 
@@ -1125,22 +1726,70 @@ def translate(
         dict: Translation results with keys: translation, full_response
     """
     overall_start = time.time()
+    exact_candidates_block = ""
+    skip_word_lookups = False
+    instant_lookup_method = ""
+    master_lexicon_enabled = _master_lexicon_enabled()
     
-    # OPTIMIZATION 1: Check for exact match with Google Translate bridge
+    # OPTIMIZATION 1: Resolve exact full-input candidates before broader bridge logic.
     stage_start = time.time()
-    exact_match = check_exact_match_with_google_translate(input_text, source_lang, target_lang)
-    log_stage_timing(logger, "Google Translate Bridge Check", time.time() - stage_start)
+    exact_candidates = collect_exact_match_candidates(input_text, source_lang, target_lang)
+    exact_match = None
+
+    if len(exact_candidates) == 1:
+        exact_match = exact_candidates[0]["target_text"]
+        instant_lookup_method = "exact_lexicon"
+    elif len(exact_candidates) > 1:
+        exact_candidates_block = _format_exact_candidate_block(
+            input_text=input_text,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            candidates=exact_candidates,
+        )
+        skip_word_lookups = True
+
+    if exact_match is None and not exact_candidates_block:
+        exact_match = check_exact_match_with_google_translate(input_text, source_lang, target_lang)
+        if exact_match is not None:
+            instant_lookup_method = "dictionary+google_translate"
+
+    log_stage_timing(logger, "Exact Match Resolution", time.time() - stage_start)
     
     if exact_match is not None:
         log_stage_timing(logger, "TOTAL (instant lookup)", time.time() - overall_start, "✅ No LLM call")
         logger.info(f"Instant lookup: '{input_text}' ({source_lang}) → '{exact_match}' ({target_lang})")
-        log_instant_lookup(logger, input_text, exact_match, "dictionary+google_translate")
+        log_instant_lookup(logger, input_text, exact_match, instant_lookup_method or "exact_lexicon")
+        full_response_label = (
+            "Exact lexicon match"
+            if instant_lookup_method == "exact_lexicon"
+            else "Dictionary match (via Google Translate bridge)"
+        )
         return {
             'translation': exact_match,
-            'full_response': f"Dictionary match (via Google Translate bridge):\n{exact_match}"
+            'full_response': f"{full_response_label}:\n{exact_match}",
+            'response_source': (
+                "exact_lexicon"
+                if instant_lookup_method == "exact_lexicon"
+                else "dictionary_google_bridge"
+            ),
+            'prompt_metrics': {
+                'reason': 'instant_lookup',
+                'method': instant_lookup_method or 'exact_lexicon',
+                'used_llm': False,
+                'exact_candidate_count': len(exact_candidates),
+                'master_lexicon_enabled': master_lexicon_enabled,
+            },
         }
     
-    logger.info(f"No instant lookup found, proceeding to LLM for '{input_text}' ({source_lang} → {target_lang})")
+    if exact_candidates_block:
+        logger.info(
+            "Ambiguous exact candidates found for '%s' (%s → %s); proceeding to LLM with shortlist",
+            input_text,
+            source_lang,
+            target_lang,
+        )
+    else:
+        logger.info(f"No instant lookup found, proceeding to LLM for '{input_text}' ({source_lang} → {target_lang})")
     
     # OPTIMIZATION 2: Handle Georgian ↔ English with Google Translate (no Mingrelian involved)
     if GoogleTranslator is not None:
@@ -1152,7 +1801,14 @@ def translate(
             log_instant_lookup(logger, input_text, translation, "google_translate_en_ka")
             return {
                 'translation': translation,
-                'full_response': f"Translation (via Google Translate):\n{translation}"
+                'full_response': f"Translation (via Google Translate):\n{translation}",
+                'response_source': 'google_translate_direct',
+                'prompt_metrics': {
+                    'reason': 'google_translate_direct',
+                    'method': 'google_translate_en_ka',
+                    'used_llm': False,
+                    'master_lexicon_enabled': master_lexicon_enabled,
+                },
             }
         
         if source_lang == "georgian" and target_lang == "english":
@@ -1163,7 +1819,14 @@ def translate(
             log_instant_lookup(logger, input_text, translation, "google_translate_ka_en")
             return {
                 'translation': translation,
-                'full_response': f"Translation (via Google Translate):\n{translation}"
+                'full_response': f"Translation (via Google Translate):\n{translation}",
+                'response_source': 'google_translate_direct',
+                'prompt_metrics': {
+                    'reason': 'google_translate_direct',
+                    'method': 'google_translate_ka_en',
+                    'used_llm': False,
+                    'master_lexicon_enabled': master_lexicon_enabled,
+                },
             }
     
     # Get the appropriate prompt builder
@@ -1173,7 +1836,22 @@ def translate(
     
     # Build the prompt (includes dictionary searches)
     stage_start = time.time()
-    prompt = builder(input_text)
+    prompt = builder(
+        input_text,
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
+    )
+    prompt_metrics = {
+        'reason': 'llm',
+        'used_llm': True,
+        'prompt_characters': len(prompt),
+        'used_grammar': 'Here is the Mingrelian grammar information:' in prompt,
+        'has_dictionary_entries': 'Here are some various dictionary entries for word(s) in that phrase:' in prompt,
+        'exact_candidate_count': len(exact_candidates),
+        'used_exact_candidate_shortlist': bool(exact_candidates_block),
+        'skip_word_lookups': skip_word_lookups,
+        'master_lexicon_enabled': master_lexicon_enabled,
+    }
     log_stage_timing(logger, "Prompt Construction (with dictionary searches)", time.time() - stage_start)
     log_prompt(logger, prompt, source_lang, target_lang)
     
@@ -1192,9 +1870,14 @@ def translate(
     total_time = time.time() - overall_start
     log_stage_timing(logger, "TOTAL (with LLM)", total_time, f"LLM={llm_time:.3f}s ({llm_time/total_time*100:.1f}%)")
     
-    logger.info(f"Extracted translation: '{translation}'")
+    prompt_metrics['llm_call_ms'] = int(llm_time * 1000)
+    prompt_metrics['response_characters'] = len(response)
+    prompt_metrics['translation_characters'] = len(translation)
+    log_translation_result(logger, translation, source_lang, target_lang)
     
     return {
         'translation': translation,
-        'full_response': response
+        'full_response': response,
+        'response_source': 'llm',
+        'prompt_metrics': prompt_metrics,
     }

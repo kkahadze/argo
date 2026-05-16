@@ -46,14 +46,16 @@ def call_api(prompt, options, context):
         dict: Response with 'output' and optional 'error'
     """
     try:
+        runtime_options = options.get('config', options)
+
         # Extract configuration
-        provider = options.get('provider', 'gemini')
-        model = options.get('model', 'gemini-3.1-flash-lite-preview')
-        api_key = options.get('api_key') or os.getenv(f'{provider.upper()}_API_KEY')
-        source_language = options.get('source_language', 'mingrelian')
-        target_language = options.get('target_language', 'english')
-        temperature = options.get('temperature', 1.0)
-        max_tokens = options.get('max_tokens')
+        provider = runtime_options.get('provider', 'gemini')
+        model = runtime_options.get('model', 'gemini-3.1-flash-lite-preview')
+        api_key = runtime_options.get('api_key') or os.getenv(f'{provider.upper()}_API_KEY')
+        source_language = runtime_options.get('source_language', 'mingrelian')
+        target_language = runtime_options.get('target_language', 'english')
+        temperature = runtime_options.get('temperature', 1.0)
+        max_tokens = runtime_options.get('max_tokens')
         
         # Initialize LLM client
         llm_client = LLMClient(
@@ -80,7 +82,9 @@ def call_api(prompt, options, context):
                 'provider': provider,
                 'model': llm_client.model,
                 'source_language': source_language,
-                'target_language': target_language
+                'target_language': target_language,
+                'response_source': result.get('response_source'),
+                'prompt_metrics': result.get('prompt_metrics'),
             }
         }
         

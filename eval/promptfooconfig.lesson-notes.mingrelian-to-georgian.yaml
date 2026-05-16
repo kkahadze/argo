@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Lesson notes evaluation: Mingrelian to Georgian"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.4 Nano"
+    config:
+      provider: openai
+      model: gpt-5.4-nano
+      source_language: mingrelian
+      target_language: georgian
+      temperature: 0.2
+      max_tokens: 256
+  - id: file://provider.py
+    label: "Gemini 3.1 Flash Lite"
+    config:
+      provider: gemini
+      model: gemini-3.1-flash-lite-preview
+      source_language: mingrelian
+      target_language: georgian
+      temperature: 0.2
+      max_tokens: 256
+
+prompts:
+  - "{{mingrelian}}"
+
+tests: file://datasets/notion-mingrelian-lesson-notes-triples.csv
+
+maxConcurrency: 2
+
+defaultTest:
+  assert:
+    - type: javascript
+      metric: target_language_fidelity
+      value: |
+        const text = (output || '').trim();
+        if (!text) {
+          return { pass: false, score: 0, reason: 'Empty output' };
+        }
+
+        const lines = text.split(/\n+/).filter(Boolean);
+        const georgian = (text.match(/[ა-ჰ]/g) || []).length;
+        const latin = (text.match(/[A-Za-z]/g) || []).length;
+        const cyrillic = (text.match(/[Ѐ-ӿ]/g) || []).length;
+        const hasLabels = /(?:translation|translated|output|answer|final)/i.test(text);
+
+        const pass = lines.length <= 2 && georgian >= 1 && latin === 0 && cyrillic === 0 && !hasLabels;
+
+        return {
+          pass,
+          score: pass ? 1 : 0,
+          reason: pass
+            ? 'Concise Georgian-only output'
+            : `Expected concise Georgian only. lines=${lines.length}, georgian=${georgian}, latin=${latin}, cyrillic=${cyrillic}, labels=${hasLabels}`,
+        };
+    - type: llm-rubric
+      provider: openai:gpt-5-mini
+      metric: semantic_accuracy
+      threshold: 0.8
+      value: |
+        You are grading a Mingrelian-to-Georgian translation.
+
+        Grade semantic correctness, not literal string match.
+
+        Pass if the output preserves the meaning of the Mingrelian source and is a natural Georgian rendering.
+
+        Be tolerant of:
+        - natural Georgian paraphrases that preserve the same meaning
+        - minor wording or word order differences
+        - medium-confidence rows that allow a slightly broader but still faithful rendering
+
+        Require:
+        - preservation of named entities, numbers, and explicit names
+        - preservation of the core predicate/action and participant roles
+        - no invented facts or meaning reversals
+        - no omission of important content in longer sentences
+
+        For long sentences, evaluate clause by clause. Do not pass partial translations.
+
+        Important for this dataset:
+        - If the output includes the correct Georgian gloss plus extra near-synonymous dictionary senses, do not fail it solely for being over-inclusive unless the added senses materially change the meaning.
+        - A short parenthetical clarifier is acceptable if the main output is still a clear, natural Georgian translation and does not replace the translation with commentary.
+        - Parallel Georgian should take precedence over overly literal interpretation of isolated Mingrelian forms.
+
+        Fail if the output is mostly English, Russian, or Mingrelian, or if it adds commentary instead of plain Georgian.
+
+        Source Mingrelian: {{mingrelian}}
+        Reference Georgian: {{georgian}}
+        Parallel English: {{english}}
+        Confidence: {{confidence}}
+        Notes: {{notes}}

@@ -7,6 +7,7 @@ import sys
 import json
 import time
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -32,28 +33,17 @@ SERVER_KEY_MODELS = {
     "openai": {"gpt-5.4-nano"},
     "gemini": {"gemini-3.1-flash-lite-preview"},
 }
+SUPPORTED_PROVIDERS = ("openai", "anthropic", "gemini")
+VALID_LANGUAGES = ("mingrelian", "georgian", "english")
 
 # Request model
 class PromptIn(BaseModel):
     prompt: str
-    api_key: str = None  # Optional: if None, server will use the configured key for the selected provider
+    api_key: Optional[str] = None  # Optional: if None, server will use the configured key for the selected provider
     source_language: str = "mingrelian"  # Source language: "mingrelian", "georgian", or "english"
     target_language: str = "english"  # Target language: "mingrelian", "georgian", or "english"
-    provider: str = None  # "openai", "anthropic", or "gemini" (if None, reads from env)
-    model: str = None  # Optional: specify model name (if None, reads from env)
-
-# Response model
-class ResponseOut(BaseModel):
-    source_text: str
-    target_text: str
-    source_language: str
-    target_language: str
-    # Legacy fields for backward compatibility
-    mingrelian_latinized: str = ""
-    mingrelian_mkhedruli: str = ""
-    georgian: str = ""
-    english: str = ""
-    full_response: str = None
+    provider: Optional[str] = None  # "openai", "anthropic", or "gemini" (if None, reads from env)
+    model: Optional[str] = None  # Optional: specify model name (if None, reads from env)
 
 # Initialize FastAPI app
 app = FastAPI(title="Mingrelian Translator API")
@@ -61,21 +51,27 @@ app = FastAPI(title="Mingrelian Translator API")
 # Setup logger
 logger = setup_logger('api')
 
-# Configure CORS to allow all origins
+# Configure CORS to allow browser clients from any origin. We do not rely on
+# cookies or browser credentials, so keep credentials disabled with a wildcard.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
 
-def is_mkhedruli(text):
+def _sse_event(payload: dict) -> str:
+    """Format a server-sent event payload."""
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def is_mkhedruli(text: str) -> bool:
     """Check if text contains Georgian Mkhedruli script characters."""
     return bool(re.search('[\u10D0-\u10FF]', text))
 
 
-def get_server_api_key(provider: str):
+def get_server_api_key(provider: str) -> Optional[str]:
     """Resolve the configured server-side API key for the requested provider."""
     env_var_by_provider = {
         "openai": "OPENAI_API_KEY",
@@ -86,7 +82,7 @@ def get_server_api_key(provider: str):
     return os.getenv(env_var) if env_var else None
 
 
-def get_default_model_for_provider(provider: str):
+def get_default_model_for_provider(provider: str) -> Optional[str]:
     """Resolve the provider's runtime default model."""
     if provider == "openai":
         return "gpt-5.4-nano"
@@ -234,28 +230,17 @@ async def stream_translation(
             )
         )
 
-        yield f"data: {json.dumps({'error': f'Failed to initialize LLM client: {str(e)}'})}\n\n"
+        yield _sse_event({"error": f"Failed to initialize LLM client: {str(e)}"})
         return
     
     try:
         # Call the single-call translator
-        print(f"Starting translation: {source_language} → {target_language}")
-        log_translation_request(
-            logger, 
-            prompt_text, 
-            source_language, 
-            target_language, 
-            provider,
-            model or 'default'
-        )
         result = single_call_translate(
             input_text=prompt_text,
             source_lang=source_language,
             target_lang=target_language,
             llm_client=llm_client
         )
-        print(f"Translation complete")
-        
         # Format output for legacy compatibility
         formatted_result = format_output_for_legacy(
             result=result,
@@ -273,7 +258,7 @@ async def stream_translation(
                 provider=provider,
                 model=llm_client.model,
                 duration_ms=int((time.time() - request_started_at) * 1000),
-                response_source=infer_response_source(result),
+                response_source=result.get("response_source") or infer_response_source(result),
                 used_user_api_key=used_user_api_key,
                 prompt_metrics=result.get("prompt_metrics"),
                 app_origin=request_meta.get("origin"),
@@ -283,17 +268,10 @@ async def stream_translation(
         )
         
         # Send final result
-        final_event = f"data: {json.dumps({'result': formatted_result})}\n\n"
-        print(f"Sending final result")
-        yield final_event
-        print("Stream completed successfully")
+        yield _sse_event({"result": formatted_result})
         return
         
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"ERROR in stream_translation: {str(e)}")
-        print(error_details)
         log_error(logger, e, {
             'input_text': prompt_text,
             'source_language': source_language,
@@ -319,7 +297,7 @@ async def stream_translation(
                 user_agent=request_meta.get("user_agent"),
             )
         )
-        yield f"data: {json.dumps({'error': f'Translation error: {str(e)}'})}\n\n"
+        yield _sse_event({"error": f"Translation error: {str(e)}"})
         return
 
 
@@ -336,17 +314,20 @@ async def chat(data: PromptIn, request: Request):
     - provider: LLM provider to use ("openai", "anthropic", or "gemini")
     - model: Optional model name (uses provider default if None)
     """
-    if not data.prompt:
+    if not data.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt text is required")
     
     api_key = data.api_key
     provider = data.provider or os.getenv("LLM_PROVIDER", "openai")
+    if provider not in SUPPORTED_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider must be one of: {', '.join(SUPPORTED_PROVIDERS)}",
+        )
+
     env_provider = os.getenv("LLM_PROVIDER", "openai")
     env_model = os.getenv("LLM_MODEL") if provider == env_provider else None
     model = data.model or env_model or get_default_model_for_provider(provider)
-
-    if provider is not None and provider not in ["openai", "anthropic", "gemini"]:
-        raise HTTPException(status_code=400, detail="Provider must be 'openai', 'anthropic', or 'gemini'")
 
     if not api_key:
         if not is_server_key_model_allowed(provider, model):
@@ -362,11 +343,10 @@ async def chat(data: PromptIn, request: Request):
             )
     
     # Validate language parameters
-    valid_languages = ["mingrelian", "georgian", "english"]
-    if data.source_language not in valid_languages:
-        raise HTTPException(status_code=400, detail=f"Source language must be one of: {', '.join(valid_languages)}")
-    if data.target_language not in valid_languages:
-        raise HTTPException(status_code=400, detail=f"Target language must be one of: {', '.join(valid_languages)}")
+    if data.source_language not in VALID_LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"Source language must be one of: {', '.join(VALID_LANGUAGES)}")
+    if data.target_language not in VALID_LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"Target language must be one of: {', '.join(VALID_LANGUAGES)}")
     if data.source_language == data.target_language:
         raise HTTPException(status_code=400, detail="Source and target languages must be different")
     

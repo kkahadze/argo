@@ -56,11 +56,23 @@ def infer_response_source(result: Optional[dict[str, Any]] = None) -> str:
     if not result:
         return "unknown"
 
+    response_source = (result.get("response_source") or "").strip()
+    if response_source:
+        return response_source
+
     prompt_metrics = result.get("prompt_metrics") or {}
+    if prompt_metrics.get("method") == "exact_lexicon":
+        return "exact_lexicon"
+    if prompt_metrics.get("method") in {"dictionary+google_translate", "dictionary_google_bridge"}:
+        return "dictionary_google_bridge"
+    if prompt_metrics.get("reason") == "google_translate_direct":
+        return "google_translate_direct"
     if prompt_metrics.get("reason") == "instant_lookup":
         return "dictionary_google_bridge"
 
     full_response = (result.get("full_response") or "").strip()
+    if full_response.startswith("Exact lexicon match:"):
+        return "exact_lexicon"
     if full_response.startswith("Dictionary match (via Google Translate bridge):"):
         return "dictionary_google_bridge"
     if full_response.startswith("Translation (via Google Translate):"):

@@ -19,7 +19,9 @@ FastAPI backend for the Mingrelian translation application. Provides translation
 bash run_local.sh
 ```
 
-Or manually:
+The helper script creates a virtualenv, installs dependencies, and starts the server.
+
+To install manually without starting the server:
 
 ```bash
 python3 -m venv venv
@@ -45,7 +47,7 @@ GEMINI_API_KEY=your_gemini_key_here
 LLM_PROVIDER=openai  # or "anthropic" or "gemini"
 
 # Default model (optional)
-LLM_MODEL=gpt-5.4-nano  # or gpt-5.4-mini, gpt-5.4, claude-sonnet-4-5-20250929, gemini-3-flash-preview, etc.
+LLM_MODEL=gpt-5.4-nano  # or gpt-5.4-mini, gpt-5.4, claude-sonnet-4-5-20250929, gemini-3.1-flash-lite-preview, etc.
 
 # Logging level (optional, defaults to INFO)
 LOG_LEVEL=INFO  # or DEBUG for more verbose logs
@@ -91,10 +93,22 @@ The API will be available at `http://localhost:8000`
 
 **Response (SSE Stream):**
 
-The endpoint streams JSON events with translation progress:
+The endpoint streams server-sent events. The final event payload looks like:
 
 ```json
-{"translation": "I", "source_text": "მა", "target_text": "I", "source_language": "mingrelian", "target_language": "english"}
+{
+  "result": {
+    "source_text": "მა",
+    "target_text": "I",
+    "source_language": "mingrelian",
+    "target_language": "english",
+    "mingrelian_latinized": "",
+    "mingrelian_mkhedruli": "მა",
+    "georgian": "",
+    "english": "I",
+    "full_response": "Exact lexicon match:\nI"
+  }
+}
 ```
 
 ## Supported Models
@@ -113,7 +127,7 @@ The endpoint streams JSON events with translation progress:
 - `claude-3-opus-20240229`
 
 ### Google
-- `gemini-3-flash-preview` (default)
+- `gemini-3.1-flash-lite-preview` (default)
 - `gemini-2.0-flash-exp`
 
 ## Architecture
@@ -246,11 +260,10 @@ argo/
 ├── src/
 │   ├── single_call_translator.py  # Core translation logic
 │   ├── llm_client.py              # LLM provider abstraction
-│   ├── transliterate.py           # Script conversion utilities
 │   └── logger.py                  # Logging configuration
-├── tests/
-│   ├── test_api.py         # API testing script
-│   └── test.html           # HTML test interface
+├── eval/                   # Promptfoo configs and evaluation helpers
+├── supabase/
+│   └── translation_events.sql
 ├── logs/                   # Log files (gitignored)
 ├── venv/                   # Virtual environment (gitignored)
 ├── .env                    # Environment variables (gitignored)
@@ -263,12 +276,12 @@ argo/
 
 ### Running Tests
 
-```bash
-# Test the API
-python tests/test_api.py --text "მა" --source mingrelian --target english
+There is no automated unit test suite checked into this repo yet.
 
-# Or use the HTML interface
-open tests/test.html
+For a quick verification pass:
+
+```bash
+python3 -m py_compile fastapi_app/api.py src/*.py eval/provider.py
 ```
 
 ### Adding New Dictionary Data

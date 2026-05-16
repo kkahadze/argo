@@ -34,6 +34,7 @@ def setup_logger(name: str = 'mingrelian_translator') -> logging.Logger:
     """
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, LOG_LEVEL))
+    logger.propagate = False
     
     # Avoid duplicate handlers
     if logger.handlers:
@@ -237,7 +238,3 @@ def log_stage_timing(
     if details:
         msg += f" ({details})"
     logger.info(msg)
-
-
-# Create default logger
-default_logger = setup_logger()

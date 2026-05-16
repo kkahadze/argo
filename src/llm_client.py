@@ -11,6 +11,11 @@ load_dotenv()
 
 # Provider type
 LLMProvider = Literal["openai", "anthropic", "gemini"]
+DEFAULT_MODEL_BY_PROVIDER = {
+    "openai": "gpt-5.4-nano",
+    "anthropic": "claude-sonnet-4-5-20250929",
+    "gemini": "gemini-3.1-flash-lite-preview",
+}
 
 class LLMClient:
     """
@@ -43,23 +48,19 @@ class LLMClient:
         # Set up provider-specific configuration
         if provider == "openai":
             import openai
-            self.client_lib = openai
             self.api_key = api_key or os.getenv("OPENAI_API_KEY")
             # Use model from parameter, then env var LLM_MODEL, then default
-            self.model = model or os.getenv("LLM_MODEL") or "gpt-5.4-nano"
+            self.model = model or os.getenv("LLM_MODEL") or DEFAULT_MODEL_BY_PROVIDER["openai"]
             
             if not self.api_key:
                 raise ValueError("OpenAI API key not found. Set OPENAI_API_KEY in .env or pass api_key parameter.")
             
-            openai.api_key = self.api_key
-            
         elif provider == "anthropic":
             try:
                 import anthropic
-                self.client_lib = anthropic
                 self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
                 # Use model from parameter, then env var LLM_MODEL, then default
-                self.model = model or os.getenv("LLM_MODEL") or "claude-sonnet-4-5-20250929"
+                self.model = model or os.getenv("LLM_MODEL") or DEFAULT_MODEL_BY_PROVIDER["anthropic"]
                 
                 if not self.api_key:
                     raise ValueError("Anthropic API key not found. Set ANTHROPIC_API_KEY in .env or pass api_key parameter.")
@@ -74,10 +75,9 @@ class LLMClient:
         elif provider == "gemini":
             try:
                 from google import genai
-                self.client_lib = genai
                 self.api_key = api_key or os.getenv("GEMINI_API_KEY")
                 # Use model from parameter, then env var LLM_MODEL, then default
-                self.model = model or os.getenv("LLM_MODEL") or "gemini-3.1-flash-lite-preview"
+                self.model = model or os.getenv("LLM_MODEL") or DEFAULT_MODEL_BY_PROVIDER["gemini"]
                 
                 if not self.api_key:
                     raise ValueError("Gemini API key not found. Set GEMINI_API_KEY in .env or pass api_key parameter.")
@@ -271,7 +271,11 @@ def complete_with_claude(prompt: str, model: str = "claude-sonnet-4-5-20250929",
     return client.complete(prompt)
 
 
-def complete_with_gemini(prompt: str, model: str = "gemini-3-flash-preview", api_key: Optional[str] = None) -> str:
+def complete_with_gemini(
+    prompt: str,
+    model: str = "gemini-3.1-flash-lite-preview",
+    api_key: Optional[str] = None,
+) -> str:
     """
     Quick function to complete a prompt with Gemini.
     
