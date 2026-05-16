@@ -8,7 +8,7 @@ FastAPI backend for the Mingrelian translation application. Provides translation
 - **Multiple LLM Providers**: Support for OpenAI (GPT-5.4 family, GPT-5.2), Anthropic (Claude), and Google (Gemini)
 - **Smart Dictionary Lookups**: Standalone word matching with short-circuit optimization
 - **Google Translate Bridge**: Instant translations via high-resource language bridging
-- **Comprehensive Logging**: Structured logging for debugging prompts, responses, and errors
+- **Configurable Logging**: Console logging by default, with opt-in file logs; full prompt/response traces require DEBUG file logging
 - **Single API Call**: Optimized to use only one LLM call per translation
 
 ## Quick Start
@@ -49,8 +49,9 @@ LLM_PROVIDER=openai  # or "anthropic" or "gemini"
 # Default model (optional)
 LLM_MODEL=gpt-5.4-nano  # or gpt-5.4-mini, gpt-5.4, claude-sonnet-4-5-20250929, gemini-3.1-flash-lite-preview, etc.
 
-# Logging level (optional, defaults to INFO)
-LOG_LEVEL=INFO  # or DEBUG for more verbose logs
+# Logging (optional, defaults to INFO console logs only)
+LOG_LEVEL=INFO
+LOG_TO_FILE=false  # set true with LOG_LEVEL=DEBUG for full prompt/response file logs
 ```
 
 ### 3. Run the Server
@@ -200,22 +201,26 @@ Located in `fastapi_app/data/`:
 
 ## Logging
 
-Logs are automatically saved to the `logs/` directory:
+Console logs are enabled by default. File logging is opt-in so tests and eval runs do not create local log files unless you ask for them.
 
-- `translator_YYYYMMDD.log` - All logs (DEBUG level and above)
+Set `LOG_TO_FILE=true` to save logs to the `logs/` directory:
+
+- `translator_YYYYMMDD.log` - Logs at the configured `LOG_LEVEL` and above
 - `errors_YYYYMMDD.log` - Error logs only
 
-**Log files include:**
+**At `LOG_LEVEL=INFO`, log files include:**
 - Translation requests with language pairs
-- Full prompts sent to LLMs
-- Full LLM responses
+- Truncated prompt/response previews
 - Extracted translations
 - Instant lookup results
 - Error details with context
 
+Full prompts sent to LLMs and full LLM responses are DEBUG entries. To write them to `translator_YYYYMMDD.log`, set both `LOG_TO_FILE=true` and `LOG_LEVEL=DEBUG`.
+
 **Environment variable:**
 ```bash
-LOG_LEVEL=DEBUG  # For more verbose logging
+LOG_LEVEL=DEBUG   # Include DEBUG details such as full prompts/responses
+LOG_TO_FILE=true  # Write logs/translator_YYYYMMDD.log and logs/errors_YYYYMMDD.log
 ```
 
 ## Translation Analytics
@@ -267,7 +272,7 @@ argo/
 ├── eval/                   # Promptfoo configs and evaluation helpers
 ├── supabase/
 │   └── translation_events.sql
-├── logs/                   # Log files (gitignored)
+├── logs/                   # Optional log files when LOG_TO_FILE=true (gitignored)
 ├── venv/                   # Virtual environment (gitignored)
 ├── .env                    # Environment variables (gitignored)
 ├── env.example             # Example environment file
@@ -280,6 +285,12 @@ argo/
 Promptfoo evaluations use `eval/provider.py`. If an eval config specifies a provider but omits `model`, the provider uses that provider's default model from `src/provider_config.py`; if the provider is also omitted, the eval-specific default provider remains Gemini.
 
 ### Running Tests
+
+Run the checked-in unit tests:
+
+```bash
+python3 -m unittest discover -s tests
+```
 
 For a quick verification pass:
 
@@ -296,8 +307,8 @@ python3 -m unittest tests.test_provider_config
 
 ### Debugging
 
-- Set `LOG_LEVEL=DEBUG` in `.env` for detailed logs
-- Check `logs/translator_YYYYMMDD.log` for full request/response traces
+- Set `LOG_LEVEL=DEBUG` and `LOG_TO_FILE=true` in `.env` to write full prompt/response logs
+- Check `logs/translator_YYYYMMDD.log` for full request/response traces when `LOG_TO_FILE=true` and `LOG_LEVEL=DEBUG`
 - Check `logs/errors_YYYYMMDD.log` for error details
 
 ## Deployment
