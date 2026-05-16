@@ -42,10 +42,11 @@ private_data/
 ├── gal.tsv
 ├── kk.tsv
 ├── context_source.txt
-├── harris.txt
-├── harris_compact.txt
-└── master-lexicon-mkhedruli.csv
+└── harris.txt
 ```
+
+Optional private files include `harris_compact.txt`,
+`master-lexicon-mkhedruli.csv`, and local `translation_overrides.tsv`.
 
 `private_data/` is ignored by git, so the code can be public while the corpora
 stay local/private.

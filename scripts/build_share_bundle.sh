@@ -14,10 +14,10 @@ runtime_files=(
   "kk.tsv"
   "context_source.txt"
   "harris.txt"
-  "harris_compact.txt"
 )
 
 optional_runtime_files=(
+  "harris_compact.txt"
   "master-lexicon-mkhedruli.csv"
   "translation_overrides.tsv"
 )

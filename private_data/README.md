@@ -11,10 +11,10 @@ Expected runtime filenames for the current backend:
 - `kk.tsv`
 - `context_source.txt`
 - `harris.txt`
-- `harris_compact.txt`
 
 Optional files used by newer/experimental branches:
 
+- `harris_compact.txt`
 - `master-lexicon-mkhedruli.csv`
 - `translation_overrides.tsv`
 - `eval-datasets/notion-mingrelian-lesson-notes-triples.csv`

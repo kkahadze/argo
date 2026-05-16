@@ -38,6 +38,11 @@ class LazyCredentialTests(unittest.TestCase):
         )
         (self.data_dir / "context_source.txt").write_text("", encoding="utf-8")
         (self.data_dir / "harris.txt").write_text("", encoding="utf-8")
+        (self.data_dir / "harris_compact.txt").write_text("", encoding="utf-8")
+        (self.data_dir / "master-lexicon-mkhedruli.csv").write_text(
+            "headword,headword_raw,translation\n",
+            encoding="utf-8",
+        )
 
     def _clear_caches(self):
         dictionary_store._get_dictionary_store_cached.cache_clear()
@@ -47,6 +52,7 @@ class LazyCredentialTests(unittest.TestCase):
         translator._load_kk_rows_cached.cache_clear()
         translator._load_context_source_entries_cached.cache_clear()
         translator._load_grammar_cached.cache_clear()
+        translator._compiled_word_pattern.cache_clear()
 
     def _post_events(self, payload):
         self._clear_caches()

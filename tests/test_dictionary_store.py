@@ -52,7 +52,7 @@ class DictionaryStoreTests(unittest.TestCase):
             "english\tgeorgian\twhat language is this\tრა ენაა ეს\n",
             encoding="utf-8",
         )
-        (self.data_dir / "kajaia_cleaned.txt").write_text("", encoding="utf-8")
+        (self.data_dir / "context_source.txt").write_text("", encoding="utf-8")
         (self.data_dir / "harris.txt").write_text("", encoding="utf-8")
 
     def _clear_caches(self):

@@ -22,42 +22,27 @@ def _master_lexicon_enabled() -> bool:
 def _get_data_path(filename: str) -> str:
     """Get the path to a data file, checking multiple possible locations."""
     configured_data_dir = os.getenv("ARGO_DATA_DIR")
+    candidate_dirs = []
     if configured_data_dir:
-        configured_path = Path(configured_data_dir).expanduser() / filename
-        if configured_path.exists():
-            return str(configured_path)
+        candidate_dirs.append(Path(configured_data_dir).expanduser())
 
-    private_data = REPO_ROOT / 'private_data' / filename
-    if private_data.exists():
-        return str(private_data)
+    candidate_dirs.extend(
+        [
+            REPO_ROOT / "private_data",
+            REPO_ROOT / "fastapi_app" / "data",
+            REPO_ROOT / "data",
+            REPO_ROOT / "notebooks",
+            REPO_ROOT / "notebooks" / "dicts",
+            REPO_ROOT / "eval" / "datasets",
+        ]
+    )
 
-    # Try fastapi_app/data first (for API usage)
-    fastapi_data = REPO_ROOT / 'fastapi_app' / 'data' / filename
-    if fastapi_data.exists():
-        return str(fastapi_data)
+    for data_dir in candidate_dirs:
+        candidate = data_dir / filename
+        if candidate.exists():
+            return str(candidate)
 
-    # Try parent data directory
-    parent_data = REPO_ROOT / 'data' / filename
-    if parent_data.exists():
-        return str(parent_data)
-
-    # Try notebooks directory (for development)
-    notebooks_data = REPO_ROOT / 'notebooks' / filename
-    if notebooks_data.exists():
-        return str(notebooks_data)
-
-    # Try notebooks/dicts directory
-    notebooks_dicts = REPO_ROOT / 'notebooks' / 'dicts' / filename
-    if notebooks_dicts.exists():
-        return str(notebooks_dicts)
-
-    # Try eval datasets directory
-    eval_datasets = REPO_ROOT / 'eval' / 'datasets' / filename
-    if eval_datasets.exists():
-        return str(eval_datasets)
-
-    # Default to fastapi_app/data
-    return str(fastapi_data)
+    return str(REPO_ROOT / "private_data" / filename)
 
 
 def _data_file_cache_key(filename: str) -> tuple[str, Optional[int]]:

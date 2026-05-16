@@ -11,8 +11,12 @@ Expected runtime filenames for this branch:
 - `kk.tsv`
 - `context_source.txt`
 - `harris.txt`
+
+Optional runtime filenames:
+
 - `harris_compact.txt`
 - `master-lexicon-mkhedruli.csv`
+- `translation_overrides.tsv`
 
 This directory can hold small public sample fixtures such as
 `translation_overrides.tsv`, but do not commit research-derived or otherwise
