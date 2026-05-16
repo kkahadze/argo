@@ -98,6 +98,58 @@ def is_server_key_model_allowed(provider: str, model: str) -> bool:
     return model in SERVER_KEY_MODELS.get(provider, set())
 
 
+class LLMConfigurationError(Exception):
+    """Raised when an LLM call is needed but credentials are not usable."""
+
+
+class LLMInitializationError(Exception):
+    """Raised when the provider client cannot be initialized."""
+
+
+def resolve_api_key_for_llm(provider: str, model: str, api_key: Optional[str]) -> str:
+    """Resolve credentials only when the request actually reaches the LLM path."""
+    if api_key:
+        return api_key
+
+    if not is_server_key_model_allowed(provider, model):
+        raise LLMConfigurationError(f"Model '{model}' requires a user-provided API key")
+
+    server_api_key = get_server_api_key(provider)
+    if not server_api_key:
+        raise LLMConfigurationError(f"Server-side API key not configured for provider '{provider}'")
+
+    return server_api_key
+
+
+class LazyLLMClient:
+    """Delay provider credentials and SDK client setup until the first LLM call."""
+
+    def __init__(self, provider: str, model: str, api_key: Optional[str]):
+        self.provider = provider
+        self.model = model
+        self._api_key = api_key
+        self._client = None
+
+    def _get_client(self):
+        if self._client is None:
+            resolved_api_key = resolve_api_key_for_llm(self.provider, self.model, self._api_key)
+            try:
+                self._client = LLMClient(
+                    provider=self.provider,
+                    model=self.model,
+                    api_key=resolved_api_key,
+                )
+            except Exception as exc:
+                raise LLMInitializationError(f"Failed to initialize LLM client: {str(exc)}") from exc
+
+            self.model = self._client.model
+
+        return self._client
+
+    def complete(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        return self._get_client().complete(prompt, system_prompt=system_prompt)
+
+
 def format_output_for_legacy(result, source_lang, target_lang, source_text):
     """
     Format the new single-call output to match legacy format for backward compatibility.
@@ -194,7 +246,7 @@ async def stream_translation(
     if provider is None:
         provider = os.getenv("LLM_PROVIDER", "openai")
     if model is None:
-        model = os.getenv("LLM_MODEL")
+        model = os.getenv("LLM_MODEL") or get_default_model_for_provider(provider)
     
     # Log the translation request
     log_translation_request(
@@ -206,32 +258,7 @@ async def stream_translation(
         model or 'default'
     )
     
-    # Initialize LLM client
-    try:
-        llm_client = LLMClient(provider=provider, model=model, api_key=api_key)
-    except Exception as e:
-        log_error(logger, e, {'provider': provider, 'model': model})
-        schedule_translation_event(
-            build_translation_event(
-                source_text=prompt_text,
-                target_text=None,
-                source_language=source_language,
-                target_language=target_language,
-                provider=provider,
-                model=model,
-                duration_ms=int((time.time() - request_started_at) * 1000),
-                response_source="init_error",
-                used_user_api_key=used_user_api_key,
-                status="error",
-                error_message=f"Failed to initialize LLM client: {str(e)}",
-                app_origin=request_meta.get("origin"),
-                referer=request_meta.get("referer"),
-                user_agent=request_meta.get("user_agent"),
-            )
-        )
-
-        yield _sse_event({"error": f"Failed to initialize LLM client: {str(e)}"})
-        return
+    llm_client = LazyLLMClient(provider=provider, model=model, api_key=api_key)
     
     try:
         # Call the single-call translator
@@ -271,6 +298,52 @@ async def stream_translation(
         yield _sse_event({"result": formatted_result})
         return
         
+    except LLMConfigurationError as e:
+        log_error(logger, e, {'provider': provider, 'model': model})
+        schedule_translation_event(
+            build_translation_event(
+                source_text=prompt_text,
+                target_text=None,
+                source_language=source_language,
+                target_language=target_language,
+                provider=provider,
+                model=model,
+                duration_ms=int((time.time() - request_started_at) * 1000),
+                response_source="credential_error",
+                used_user_api_key=used_user_api_key,
+                status="error",
+                error_message=str(e),
+                app_origin=request_meta.get("origin"),
+                referer=request_meta.get("referer"),
+                user_agent=request_meta.get("user_agent"),
+            )
+        )
+        yield _sse_event({"error": str(e)})
+        return
+
+    except LLMInitializationError as e:
+        log_error(logger, e, {'provider': provider, 'model': model})
+        schedule_translation_event(
+            build_translation_event(
+                source_text=prompt_text,
+                target_text=None,
+                source_language=source_language,
+                target_language=target_language,
+                provider=provider,
+                model=model,
+                duration_ms=int((time.time() - request_started_at) * 1000),
+                response_source="init_error",
+                used_user_api_key=used_user_api_key,
+                status="error",
+                error_message=str(e),
+                app_origin=request_meta.get("origin"),
+                referer=request_meta.get("referer"),
+                user_agent=request_meta.get("user_agent"),
+            )
+        )
+        yield _sse_event({"error": str(e)})
+        return
+
     except Exception as e:
         log_error(logger, e, {
             'input_text': prompt_text,
@@ -317,7 +390,6 @@ async def chat(data: PromptIn, request: Request):
     if not data.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt text is required")
     
-    api_key = data.api_key
     provider = data.provider or os.getenv("LLM_PROVIDER", "openai")
     if provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(
@@ -328,19 +400,6 @@ async def chat(data: PromptIn, request: Request):
     env_provider = os.getenv("LLM_PROVIDER", "openai")
     env_model = os.getenv("LLM_MODEL") if provider == env_provider else None
     model = data.model or env_model or get_default_model_for_provider(provider)
-
-    if not api_key:
-        if not is_server_key_model_allowed(provider, model):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Model '{model}' requires a user-provided API key"
-            )
-        api_key = get_server_api_key(provider)
-        if not api_key:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Server-side API key not configured for provider '{provider}'"
-            )
     
     # Validate language parameters
     if data.source_language not in VALID_LANGUAGES:
@@ -354,7 +413,7 @@ async def chat(data: PromptIn, request: Request):
     return StreamingResponse(
         stream_translation(
             data.prompt,
-            api_key,
+            data.api_key,
             data.source_language,
             data.target_language,
             provider,
