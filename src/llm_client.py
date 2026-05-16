@@ -3,14 +3,20 @@
 LLM Client abstraction layer to support multiple LLM providers (OpenAI, Anthropic Claude, Google Gemini, etc.)
 """
 import os
-from typing import Optional, Literal
+from typing import Optional
 from dotenv import load_dotenv
+
+from src.provider_config import (
+    DEFAULT_MODEL_BY_PROVIDER,
+    DEFAULT_PROVIDER,
+    LLMProvider,
+    SUPPORTED_PROVIDERS,
+    get_api_key_env_var,
+    get_default_model_for_provider,
+)
 
 # Load environment variables
 load_dotenv()
-
-# Provider type
-LLMProvider = Literal["openai", "anthropic", "gemini"]
 
 class LLMClient:
     """
@@ -20,7 +26,7 @@ class LLMClient:
     
     def __init__(
         self, 
-        provider: LLMProvider = "openai",
+        provider: LLMProvider = DEFAULT_PROVIDER,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         temperature: float = 1.0,
@@ -39,30 +45,32 @@ class LLMClient:
         self.provider = provider
         self.temperature = temperature
         self.max_tokens = max_tokens
+
+        default_model = get_default_model_for_provider(provider)
+        if default_model is None:
+            supported = ", ".join(f"'{item}'" for item in SUPPORTED_PROVIDERS[:-1])
+            supported = f"{supported}, or '{SUPPORTED_PROVIDERS[-1]}'"
+            raise ValueError(
+                f"Unsupported provider: {provider}. Use {supported}."
+            )
+        self.model = model or os.getenv("LLM_MODEL") or default_model
+        api_key_env_var = get_api_key_env_var(provider)
+        provider_api_key = os.getenv(api_key_env_var) if api_key_env_var else None
+        self.api_key = api_key or provider_api_key
         
         # Set up provider-specific configuration
         if provider == "openai":
             import openai
-            self.client_lib = openai
-            self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-            # Use model from parameter, then env var LLM_MODEL, then default
-            self.model = model or os.getenv("LLM_MODEL") or "gpt-5.4-nano"
             
             if not self.api_key:
-                raise ValueError("OpenAI API key not found. Set OPENAI_API_KEY in .env or pass api_key parameter.")
-            
-            openai.api_key = self.api_key
+                raise ValueError(f"OpenAI API key not found. Set {api_key_env_var} in .env or pass api_key parameter.")
             
         elif provider == "anthropic":
             try:
                 import anthropic
-                self.client_lib = anthropic
-                self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-                # Use model from parameter, then env var LLM_MODEL, then default
-                self.model = model or os.getenv("LLM_MODEL") or "claude-sonnet-4-5-20250929"
                 
                 if not self.api_key:
-                    raise ValueError("Anthropic API key not found. Set ANTHROPIC_API_KEY in .env or pass api_key parameter.")
+                    raise ValueError(f"Anthropic API key not found. Set {api_key_env_var} in .env or pass api_key parameter.")
                 
                 self.client = anthropic.Anthropic(api_key=self.api_key)
                 
@@ -74,13 +82,9 @@ class LLMClient:
         elif provider == "gemini":
             try:
                 from google import genai
-                self.client_lib = genai
-                self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-                # Use model from parameter, then env var LLM_MODEL, then default
-                self.model = model or os.getenv("LLM_MODEL") or "gemini-3.1-flash-lite-preview"
                 
                 if not self.api_key:
-                    raise ValueError("Gemini API key not found. Set GEMINI_API_KEY in .env or pass api_key parameter.")
+                    raise ValueError(f"Gemini API key not found. Set {api_key_env_var} in .env or pass api_key parameter.")
                 
                 # Initialize the new genai client
                 self.genai_client = genai.Client(api_key=self.api_key)
@@ -89,8 +93,6 @@ class LLMClient:
                 raise ImportError(
                     "google-genai package not installed. Install it with: pip install google-genai"
                 )
-        else:
-            raise ValueError(f"Unsupported provider: {provider}. Use 'openai', 'anthropic', or 'gemini'.")
     
     def complete(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """
@@ -230,7 +232,7 @@ def get_default_llm_client(
         LLMClient: Configured LLM client
     """
     if provider is None:
-        provider = os.getenv("LLM_PROVIDER", "openai")
+        provider = os.getenv("LLM_PROVIDER", DEFAULT_PROVIDER)
     
     if model is None:
         model = os.getenv("LLM_MODEL")
@@ -239,7 +241,11 @@ def get_default_llm_client(
 
 
 # Convenience functions for backward compatibility
-def complete_with_openai(prompt: str, model: str = "gpt-5.4-nano", api_key: Optional[str] = None) -> str:
+def complete_with_openai(
+    prompt: str,
+    model: str = DEFAULT_MODEL_BY_PROVIDER["openai"],
+    api_key: Optional[str] = None,
+) -> str:
     """
     Quick function to complete a prompt with OpenAI.
     
@@ -255,7 +261,11 @@ def complete_with_openai(prompt: str, model: str = "gpt-5.4-nano", api_key: Opti
     return client.complete(prompt)
 
 
-def complete_with_claude(prompt: str, model: str = "claude-sonnet-4-5-20250929", api_key: Optional[str] = None) -> str:
+def complete_with_claude(
+    prompt: str,
+    model: str = DEFAULT_MODEL_BY_PROVIDER["anthropic"],
+    api_key: Optional[str] = None,
+) -> str:
     """
     Quick function to complete a prompt with Claude.
     
@@ -271,7 +281,11 @@ def complete_with_claude(prompt: str, model: str = "claude-sonnet-4-5-20250929",
     return client.complete(prompt)
 
 
-def complete_with_gemini(prompt: str, model: str = "gemini-3-flash-preview", api_key: Optional[str] = None) -> str:
+def complete_with_gemini(
+    prompt: str,
+    model: str = DEFAULT_MODEL_BY_PROVIDER["gemini"],
+    api_key: Optional[str] = None,
+) -> str:
     """
     Quick function to complete a prompt with Gemini.
     

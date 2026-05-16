@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+services:
+  - type: web
+    name: argo-translator
+    runtime: python
+    buildCommand: pip install -r fastapi_app/requirements.txt
+    startCommand: uvicorn fastapi_app.api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: LLM_PROVIDER
+        value: openai
+      - key: LLM_MODEL
+        value: gpt-5.4-nano
+      - key: LOG_LEVEL
+        value: INFO
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SUPABASE_LOGGING_ENABLED
+        value: "false"
+      - key: SUPABASE_LOGGING_TABLE
+        value: translation_events
+      - key: SUPABASE_LOGGING_TIMEOUT_SECONDS
+        value: "2.5"

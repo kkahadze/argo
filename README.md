@@ -8,7 +8,7 @@ FastAPI backend for the Mingrelian translation application. Provides translation
 - **Multiple LLM Providers**: Support for OpenAI (GPT-5.4 family, GPT-5.2), Anthropic (Claude), and Google (Gemini)
 - **Smart Dictionary Lookups**: Standalone word matching with short-circuit optimization
 - **Google Translate Bridge**: Instant translations via high-resource language bridging
-- **Comprehensive Logging**: Structured logging for debugging prompts, responses, and errors
+- **Configurable Logging**: Console logging by default, with opt-in file logs; full prompt/response traces require DEBUG file logging
 - **Single API Call**: Optimized to use only one LLM call per translation
 
 ## Quick Start
@@ -19,7 +19,9 @@ FastAPI backend for the Mingrelian translation application. Provides translation
 bash run_local.sh
 ```
 
-Or manually:
+The helper script creates a virtualenv, installs dependencies, and starts the server.
+
+To install manually without starting the server:
 
 ```bash
 python3 -m venv venv
@@ -86,10 +88,11 @@ GEMINI_API_KEY=your_gemini_key_here
 LLM_PROVIDER=openai  # or "anthropic" or "gemini"
 
 # Default model (optional)
-LLM_MODEL=gpt-5.4-nano  # or gpt-5.4-mini, gpt-5.4, claude-sonnet-4-5-20250929, gemini-3-flash-preview, etc.
+LLM_MODEL=gpt-5.4-nano  # or gpt-5.4-mini, gpt-5.4, claude-sonnet-4-5-20250929, gemini-3.1-flash-lite-preview, etc.
 
-# Logging level (optional, defaults to INFO)
-LOG_LEVEL=INFO  # or DEBUG for more verbose logs
+# Logging (optional, defaults to INFO console logs only)
+LOG_LEVEL=INFO
+LOG_TO_FILE=false  # set true with LOG_LEVEL=DEBUG for full prompt/response file logs
 ```
 
 ### 3. Run the Server
@@ -125,20 +128,34 @@ The API will be available at `http://localhost:8000`
 **Parameters:**
 - `prompt` (string, required): Text to translate
 - `api_key` (string, optional): API key for the LLM provider (if omitted, the backend uses the configured server-side key for the selected provider)
-- `source_language` (string, optional): Source language - "mingrelian", "georgian", or "english" (default: "mingrelian")
-- `target_language` (string, optional): Target language - "mingrelian", "georgian", or "english" (default: "english")
+- `source_language` (string, optional): Source language - "mingrelian", "georgian", or "english" (default: "mingrelian" from `src/provider_config.py`)
+- `target_language` (string, optional): Target language - "mingrelian", "georgian", or "english" (default: "english" from `src/provider_config.py`)
 - `provider` (string, optional): LLM provider - "openai", "anthropic", or "gemini" (reads from env if not specified)
 - `model` (string, optional): Model name (reads from env if not specified, then uses provider default)
 
 **Response (SSE Stream):**
 
-The endpoint streams JSON events with translation progress:
+The endpoint streams server-sent events. The final event payload looks like:
 
 ```json
-{"translation": "I", "source_text": "მა", "target_text": "I", "source_language": "mingrelian", "target_language": "english"}
+{
+  "result": {
+    "source_text": "მა",
+    "target_text": "I",
+    "source_language": "mingrelian",
+    "target_language": "english",
+    "mingrelian_latinized": "",
+    "mingrelian_mkhedruli": "მა",
+    "georgian": "",
+    "english": "I",
+    "full_response": "Exact lexicon match:\nI"
+  }
+}
 ```
 
 ## Supported Models
+
+Provider names, language names/defaults, provider model defaults, provider API key environment variables, and the server-side-key model allowlist are defined in `src/provider_config.py`. User-provided API keys may still request other provider-supported model names.
 
 ### OpenAI
 - `gpt-5.4-nano` (default)
@@ -154,7 +171,7 @@ The endpoint streams JSON events with translation progress:
 - `claude-3-opus-20240229`
 
 ### Google
-- `gemini-3-flash-preview` (default)
+- `gemini-3.1-flash-lite-preview` (default)
 - `gemini-2.0-flash-exp`
 
 ## Architecture
@@ -211,14 +228,14 @@ Private runtime corpora are loaded from `ARGO_DATA_DIR` when set, then
 1. **sentence_pairs.tsv** - English-Mingrelian parallel sentences
 2. **gal.tsv** - Russian-Mingrelian dictionary
 3. **kk.tsv** - Mingrelian-Russian-Georgian dictionary (4 columns: word, IPA, Russian, Georgian)
-4. **kajaia_cleaned.txt** - Large Georgian-Mingrelian reference (used for context, not extractive lookups)
+4. **context_source.txt** - Large fallback reference used for LLM context, not extractive lookups
 5. **harris.txt** - Grammar reference
 
 ### Optimization Strategies
 
 1. **Standalone Word Matching**: Prioritizes exact word matches (surrounded by spaces) over substring matches to reduce irrelevant context
 
-2. **Short-Circuit for Extractive Dictionaries**: If a standalone match is found in sentence_pairs.tsv, gal.tsv, or kk.tsv, the system skips searching kajaia_cleaned.txt
+2. **Short-Circuit for Extractive Dictionaries**: If a standalone match is found in sentence_pairs.tsv, gal.tsv, or kk.tsv, the system skips searching context_source.txt
 
 3. **Instant Lookup**: If an exact match for the full input is found in extractive dictionaries, translation is returned instantly without any LLM call
 
@@ -226,22 +243,26 @@ Private runtime corpora are loaded from `ARGO_DATA_DIR` when set, then
 
 ## Logging
 
-Logs are automatically saved to the `logs/` directory:
+Console logs are enabled by default. File logging is opt-in so tests and eval runs do not create local log files unless you ask for them.
 
-- `translator_YYYYMMDD.log` - All logs (DEBUG level and above)
+Set `LOG_TO_FILE=true` to save logs to the `logs/` directory:
+
+- `translator_YYYYMMDD.log` - Logs at the configured `LOG_LEVEL` and above
 - `errors_YYYYMMDD.log` - Error logs only
 
-**Log files include:**
+**At `LOG_LEVEL=INFO`, log files include:**
 - Translation requests with language pairs
-- Full prompts sent to LLMs
-- Full LLM responses
+- Truncated prompt/response previews
 - Extracted translations
 - Instant lookup results
 - Error details with context
 
+Full prompts sent to LLMs and full LLM responses are DEBUG entries. To write them to `translator_YYYYMMDD.log`, set both `LOG_TO_FILE=true` and `LOG_LEVEL=DEBUG`.
+
 **Environment variable:**
 ```bash
-LOG_LEVEL=DEBUG  # For more verbose logging
+LOG_LEVEL=DEBUG   # Include DEBUG details such as full prompts/responses
+LOG_TO_FILE=true  # Write logs/translator_YYYYMMDD.log and logs/errors_YYYYMMDD.log
 ```
 
 ## Translation Analytics
@@ -282,65 +303,98 @@ argo/
 │   ├── requirements.txt    # Python dependencies
 │   └── data/               # Public data docs/sample fixtures only
 ├── src/
-│   ├── single_call_translator.py  # Core translation logic
+│   ├── single_call_translator.py  # Backward-compatible translator facade
+│   ├── translator/                # Translation data, lookup, prompts, extraction, pipeline
+│   ├── provider_config.py         # Provider, model, language defaults and allowlists
 │   ├── dictionary_store.py        # Dictionary loading and lookup indexes
 │   ├── llm_client.py              # LLM provider abstraction
 │   └── logger.py                  # Logging configuration
 ├── private_data/           # Ignored private corpora for local/full-quality runs
 ├── scripts/
 │   └── build_share_bundle.sh # Build code+private-data zip for sharing
+├── eval/                   # Promptfoo configs and evaluation helpers
+├── supabase/
+│   └── translation_events.sql
 ├── tests/                  # Unit tests with synthetic fixtures
-├── logs/                   # Log files (gitignored)
+├── logs/                   # Optional log files when LOG_TO_FILE=true (gitignored)
 ├── venv/                   # Virtual environment (gitignored)
 ├── .env                    # Environment variables (gitignored)
 ├── env.example             # Example environment file
+├── render.yaml             # Render Blueprint deployment config
 ├── run_local.sh            # Local development script
 └── README.md               # This file
 ```
 
 ## Development
 
+Promptfoo evaluations use `eval/provider.py`. If an eval config specifies a provider but omits `model`, the provider uses that provider's default model from `src/provider_config.py`; if the provider is also omitted, the eval-specific default provider remains Gemini.
+
 ### Running Tests
+
+Run the checked-in unit tests:
 
 ```bash
 python3 -m unittest discover -s tests
 ```
 
+For a quick verification pass:
+
+```bash
+python3 -m py_compile fastapi_app/api.py src/*.py src/translator/*.py eval/*.py tests/*.py
+python3 -m unittest tests.test_provider_config
+```
+
 ### Adding New Dictionary Data
 
 1. Add private TSV/TXT/CSV files to `private_data/` or an `ARGO_DATA_DIR` folder
-2. Update search functions in `src/single_call_translator.py`
+2. Update loaders/search functions in `src/translator/data.py` and `src/translator/lookup.py`
 3. Add to prompt construction as needed
 4. Commit only docs, code, and small public sample fixtures unless the data has clear redistribution rights
 
 ### Debugging
 
-- Set `LOG_LEVEL=DEBUG` in `.env` for detailed logs
-- Check `logs/translator_YYYYMMDD.log` for full request/response traces
+- Set `LOG_LEVEL=DEBUG` and `LOG_TO_FILE=true` in `.env` to write full prompt/response logs
+- Check `logs/translator_YYYYMMDD.log` for full request/response traces when `LOG_TO_FILE=true` and `LOG_LEVEL=DEBUG`
 - Check `logs/errors_YYYYMMDD.log` for error details
 
 ## Deployment
 
-This backend is designed to be deployed on platforms like Render, Heroku, or Railway.
+Render is the documented deployment path for this backend. The repository includes
+`render.yaml` so the service can be created or synced from a Render Blueprint.
 
-**Key files for deployment:**
-- `fastapi_app/requirements.txt` - Dependencies
-- `fastapi_app/api.py` - Entry point
-- Environment variables must be set in the platform's dashboard
+**Render configuration:**
+- Runtime: Python
+- Build command: `pip install -r fastapi_app/requirements.txt`
+- Start command: `uvicorn fastapi_app.api:app --host 0.0.0.0 --port $PORT`
+- Service name: `argo-translator`
 
-**Render example:**
-- Build Command: `pip install -r fastapi_app/requirements.txt`
-- Start Command: `uvicorn fastapi_app.api:app --host 0.0.0.0 --port $PORT`
+### Deploying on Render
+
+1. In Render, create a Blueprint or Web Service from this repository.
+2. Let Render read `render.yaml`, or manually use the build and start commands above.
+3. Set secrets in the Render dashboard. Do not commit secrets to the repository.
+
+The default Render config uses `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5.4-nano`,
+and prompts for `OPENAI_API_KEY` as a secret value. If you switch providers,
+set the matching provider and model variables plus the matching secret key
+(`ANTHROPIC_API_KEY` or `GEMINI_API_KEY`) in Render.
+
+Optional Supabase analytics remain disabled by default. To enable them, set
+`SUPABASE_LOGGING_ENABLED=true` and provide `SUPABASE_URL` plus a Supabase API
+key in Render.
+
+Render builds and deploys from the linked repository or Blueprint.
 
 ## Contributing
 
 When contributing:
 
 1. Keep all LLM calls centralized in `src/llm_client.py`
-2. Add comprehensive logging for debugging
-3. Keep private dictionary/reference data out of git; use `private_data/` or `ARGO_DATA_DIR`
-4. Test with multiple LLM providers
-5. Update this README with any architectural changes
+2. Keep provider, model, language defaults, API key environment variable names, and server-key allowlists centralized in `src/provider_config.py`
+3. Add comprehensive logging for debugging
+4. Keep private dictionary/reference data out of git; use `private_data/` or `ARGO_DATA_DIR`
+5. Test with multiple LLM providers
+6. Update this README with any architectural changes
 
 ## License
 

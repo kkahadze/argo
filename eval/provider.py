@@ -17,6 +17,15 @@ load_dotenv(os.path.join(parent_dir, '.env'))
 
 from src.single_call_translator import translate
 from src.llm_client import LLMClient
+from src.provider_config import (
+    DEFAULT_MODEL_BY_PROVIDER,
+    DEFAULT_SOURCE_LANGUAGE,
+    DEFAULT_TARGET_LANGUAGE,
+    get_api_key_env_var,
+)
+
+
+EVAL_DEFAULT_PROVIDER = 'gemini'
 
 
 def call_api(prompt, options, context):
@@ -34,7 +43,7 @@ def call_api(prompt, options, context):
         prompt (str): The text to translate
         options (dict): Configuration from promptfooconfig.yaml
             - provider: LLM provider (openai, anthropic, gemini)
-            - model: Model name
+            - model: Model name (defaults to the selected provider's configured default)
             - api_key: Optional API key
             - source_language: Source language (default: mingrelian)
             - target_language: Target language (default: english)
@@ -46,14 +55,18 @@ def call_api(prompt, options, context):
         dict: Response with 'output' and optional 'error'
     """
     try:
+        runtime_options = options.get('config', options)
+
         # Extract configuration
-        provider = options.get('provider', 'gemini')
-        model = options.get('model', 'gemini-3.1-flash-lite-preview')
-        api_key = options.get('api_key') or os.getenv(f'{provider.upper()}_API_KEY')
-        source_language = options.get('source_language', 'mingrelian')
-        target_language = options.get('target_language', 'english')
-        temperature = options.get('temperature', 1.0)
-        max_tokens = options.get('max_tokens')
+        provider = runtime_options.get('provider', EVAL_DEFAULT_PROVIDER)
+        model = runtime_options.get('model', DEFAULT_MODEL_BY_PROVIDER.get(provider))
+        api_key_env_var = get_api_key_env_var(provider)
+        env_api_key = os.getenv(api_key_env_var) if api_key_env_var else None
+        api_key = runtime_options.get('api_key') or env_api_key
+        source_language = runtime_options.get('source_language', DEFAULT_SOURCE_LANGUAGE)
+        target_language = runtime_options.get('target_language', DEFAULT_TARGET_LANGUAGE)
+        temperature = runtime_options.get('temperature', 1.0)
+        max_tokens = runtime_options.get('max_tokens')
         
         # Initialize LLM client
         llm_client = LLMClient(
@@ -80,7 +93,9 @@ def call_api(prompt, options, context):
                 'provider': provider,
                 'model': llm_client.model,
                 'source_language': source_language,
-                'target_language': target_language
+                'target_language': target_language,
+                'response_source': result.get('response_source'),
+                'prompt_metrics': result.get('prompt_metrics'),
             }
         }
         
@@ -99,10 +114,10 @@ if __name__ == '__main__':
     # Test configuration
     test_prompt = "მა"
     test_options = {
-        'provider': 'gemini',
-        'model': 'gemini-3.1-flash-lite-preview',
-        'source_language': 'mingrelian',
-        'target_language': 'english',
+        'provider': EVAL_DEFAULT_PROVIDER,
+        'model': DEFAULT_MODEL_BY_PROVIDER[EVAL_DEFAULT_PROVIDER],
+        'source_language': DEFAULT_SOURCE_LANGUAGE,
+        'target_language': DEFAULT_TARGET_LANGUAGE,
         'temperature': 0.7
     }
     
