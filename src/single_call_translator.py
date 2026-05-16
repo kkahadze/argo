@@ -5,8 +5,6 @@ Adapted from explore_rag_dict.ipynb notebook.
 """
 import re
 import string
-from functools import lru_cache
-from pathlib import Path
 from typing import Callable, Optional
 try:
     from deep_translator import GoogleTranslator
@@ -19,6 +17,12 @@ from src.logger import (
     log_llm_response, 
     log_instant_lookup,
     log_stage_timing
+)
+from src.dictionary_store import (
+    choose_kk_bridge_gloss as _choose_kk_bridge_gloss,
+    get_data_path as _get_data_path,
+    get_dictionary_store,
+    split_figurative_gloss as _split_figurative_gloss,
 )
 import time
 
@@ -33,217 +37,14 @@ LANG_LABEL = {
     "georgian": "Georgian",
 }
 
-FIGURATIVE_MARKERS = {
-    "ru": ("переносное значение", "перен."),
-    "ka": ("გადატანილი მნიშვნელობით", "გადატ."),
-}
-
-
-def _normalize_gloss_segment(text: str) -> str:
-    """Strip numbering and separators that are not meaningful translation content."""
-    normalized = re.sub(r"\s+", " ", text).strip(" ;,\n\t")
-    normalized = re.sub(r"^\d+\.\s*", "", normalized)
-    normalized = re.sub(r"\s+\d+\.$", "", normalized)
-    return normalized.strip(" ;,\n\t")
-
-
-def _split_figurative_gloss(gloss: str, lang_code: str) -> tuple[str, Optional[str]]:
-    """Split a dictionary gloss into primary and figurative senses."""
-    markers = FIGURATIVE_MARKERS.get(lang_code, ())
-    if not gloss or not markers:
-        normalized = _normalize_gloss_segment(gloss)
-        return normalized, None
-
-    lowered = gloss.lower()
-    marker_position = min(
-        (idx for marker in markers if (idx := lowered.find(marker)) != -1),
-        default=-1,
-    )
-    if marker_position == -1:
-        normalized = _normalize_gloss_segment(gloss)
-        return normalized, None
-
-    matched_marker = next(marker for marker in markers if lowered.find(marker) == marker_position)
-    primary = _normalize_gloss_segment(gloss[:marker_position])
-    secondary = _normalize_gloss_segment(gloss[marker_position + len(matched_marker):])
-    return primary, secondary or None
-
-
-def _format_kk_entry(mingrelian: str, russian: str, georgian: str) -> str:
-    """Format a kk.tsv entry with figurative senses clearly marked as secondary."""
-    ru_primary, ru_figurative = _split_figurative_gloss(russian, "ru")
-    ka_primary, ka_figurative = _split_figurative_gloss(georgian, "ka")
-
-    lines = [f"Mingrelian: {mingrelian}"]
-    if ru_primary:
-        lines.append(f"Russian primary meaning: {ru_primary}")
-    if ru_figurative:
-        lines.append(f"Russian secondary figurative meaning: {ru_figurative}")
-    if ka_primary:
-        lines.append(f"Georgian primary meaning: {ka_primary}")
-    if ka_figurative:
-        lines.append(f"Georgian secondary figurative meaning: {ka_figurative}")
-    return "\n".join(lines)
-
-
-def _choose_kk_bridge_gloss(russian: str, georgian: str, target_lang: Optional[str]) -> tuple[str, str]:
-    """
-    Pick the safest gloss for direct bridging from kk.tsv.
-
-    Russian glosses bridge to English more reliably than Georgian glosses in the
-    current pipeline, so prefer Russian when producing English.
-    """
-    russian_primary, _ = _split_figurative_gloss(russian, "ru")
-    georgian_primary, _ = _split_figurative_gloss(georgian, "ka")
-
-    if target_lang == "english":
-        if russian_primary:
-            return russian_primary, "ru"
-        if georgian_primary:
-            return georgian_primary, "ka"
-    elif target_lang == "georgian":
-        if georgian_primary:
-            return georgian_primary, "ka"
-        if russian_primary:
-            return russian_primary, "ru"
-
-    if georgian_primary:
-        return georgian_primary, "ka"
-    if russian_primary:
-        return russian_primary, "ru"
-    return "", ""
-
-
-def _get_data_path(filename: str) -> str:
-    """Get the path to a data file, checking multiple possible locations."""
-    # Try fastapi_app/data first (for API usage)
-    fastapi_data = Path(__file__).parent.parent / 'fastapi_app' / 'data' / filename
-    if fastapi_data.exists():
-        return str(fastapi_data)
-    
-    # Try parent data directory
-    parent_data = Path(__file__).parent.parent / 'data' / filename
-    if parent_data.exists():
-        return str(parent_data)
-    
-    # Try notebooks directory (for development)
-    notebooks_data = Path(__file__).parent.parent / 'notebooks' / filename
-    if notebooks_data.exists():
-        return str(notebooks_data)
-    
-    # Try notebooks/dicts directory
-    notebooks_dicts = Path(__file__).parent.parent / 'notebooks' / 'dicts' / filename
-    if notebooks_dicts.exists():
-        return str(notebooks_dicts)
-    
-    # Default to fastapi_app/data
-    return str(fastapi_data)
-
-
-def _is_standalone_match(text: str, word: str) -> bool:
-    """
-    Check if word appears as a standalone word in text (not as part of another word).
-    Supports Mingrelian headword notations like `ნუმ(უ)` by allowing non-word
-    characters (punctuation/whitespace) between letters while still enforcing
-    standalone boundaries.
-    
-    Args:
-        text: Text to search in
-        word: Word to search for
-        
-    Returns:
-        bool: True if word appears standalone, False otherwise
-    """
-    word = (word or "").strip()
-    if not word:
-        return False
-    return _compiled_word_pattern(word, standalone=True).search(text) is not None
-
-
-def _is_substring_match(text: str, word: str) -> bool:
-    """
-    Like a basic `word in text` check, but also surfaces dictionary headword
-    variants where punctuation appears between letters (e.g., `नुम(უ)`).
-    """
-    word = (word or "").strip()
-    if not word:
-        return False
-    # Fast path: direct substring
-    if word in text:
-        return True
-    # Slow path: fuzzy "letters separated by punctuation" regex
-    return _compiled_word_pattern(word, standalone=False).search(text) is not None
-
-
-@lru_cache(maxsize=4096)
-def _compiled_word_pattern(word: str, standalone: bool) -> re.Pattern:
-    """
-    Compile and cache the regex used for matching `word`.
-
-    - For short tokens (<=2 chars), we use strict contiguous matching to avoid
-      excessive false-positives and keep matching fast.
-    - For longer tokens, we allow *punctuation (not whitespace)* between
-      characters so queries like `ნუმუ` match `ნუმ(უ)` without accidentally
-      matching across separate words like `... ანუ ... მუზმა ...`.
-    """
-    escaped = re.escape(word)
-    if len(word) <= 2:
-        core = escaped
-    else:
-        # Allow punctuation/symbols between letters, but do NOT allow whitespace.
-        # This keeps matches within a token (e.g., parentheses in headwords).
-        sep = r"[^\w\s]*"
-        core = sep.join(re.escape(ch) for ch in word)
-
-    if standalone:
-        # Prefer lookarounds over \b for robust Unicode behavior.
-        pattern = r"(?<!\w)" + core + r"(?!\w)"
-    else:
-        pattern = core
-
-    return re.compile(pattern, re.IGNORECASE)
-
-
 # English
 def grep_search_pairs(word: str, *, standalone_only: bool = False) -> tuple[str, bool]:
     """
     Search sentence_pairs.tsv for English translations, prioritizing standalone word matches.
     Returns: (result_string, has_standalone_matches)
     """
-    file_path = _get_data_path("sentence_pairs.tsv")
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            lines = file.readlines()
-    except FileNotFoundError:
-        return "", False
-    
-    # First pass: look for standalone word matches
-    standalone_output = "========\n"
-    substring_output = "========\n"
-    
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 2:
-            mingrelian, english = parts[0], parts[1]
-            if mingrelian and english:
-                # Check if word appears as standalone in either mingrelian or english
-                if _is_standalone_match(mingrelian, word) or _is_standalone_match(english, word):
-                    standalone_output += "Mingrelian: " + mingrelian + "\n"
-                    standalone_output += "English: " + english
-                    standalone_output += "========\n"
-                elif _is_substring_match(line, word):
-                    # Word appears as substring
-                    substring_output += "Mingrelian: " + mingrelian + "\n"
-                    substring_output += "English: " + english
-                    substring_output += "========\n"
-    
-    # Return standalone matches if found, otherwise substring matches (unless standalone_only)
-    if standalone_output != "========\n":
-        return standalone_output, True
-    elif (not standalone_only) and substring_output != "========\n":
-        return substring_output, False
-    return "", False
+    result = get_dictionary_store().search_sentence_pairs(word, standalone_only=standalone_only)
+    return result.output, result.has_standalone_matches
 
 
 # Russian
@@ -252,40 +53,8 @@ def grep_search_gal(word: str, *, standalone_only: bool = False) -> tuple[str, b
     Search gal.tsv for Russian translations, prioritizing standalone word matches.
     Returns: (result_string, has_standalone_matches)
     """
-    file_path = _get_data_path("gal.tsv")
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            lines = file.readlines()
-    except FileNotFoundError:
-        return "", False
-    
-    # First pass: look for standalone word matches
-    standalone_output = "========\n"
-    substring_output = "========\n"
-    
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 2:
-            russian, mingrelian = parts[0], parts[1]
-            if mingrelian and russian:
-                # Check if word appears as standalone
-                if _is_standalone_match(mingrelian, word) or _is_standalone_match(russian, word):
-                    standalone_output += "Mingrelian: " + mingrelian
-                    standalone_output += "Russian: " + russian + "\n"
-                    standalone_output += "========\n"
-                elif _is_substring_match(line, word) or _is_substring_match(line, word.lower()):
-                    # Word appears as substring
-                    substring_output += "Mingrelian: " + mingrelian
-                    substring_output += "Russian: " + russian + "\n"
-                    substring_output += "========\n"
-    
-    # Return standalone matches if found, otherwise substring matches (unless standalone_only)
-    if standalone_output != "========\n":
-        return standalone_output, True
-    elif (not standalone_only) and substring_output != "========\n":
-        return substring_output, False
-    return "", False
+    result = get_dictionary_store().search_gal(word, standalone_only=standalone_only)
+    return result.output, result.has_standalone_matches
 
 
 # Russian and Georgian
@@ -294,45 +63,8 @@ def grep_search_kk(word: str, *, standalone_only: bool = False) -> tuple[str, bo
     Search kk.tsv for Russian and Georgian translations, prioritizing standalone word matches.
     Returns: (result_string, has_standalone_matches)
     """
-    file_path = _get_data_path("kk.tsv")
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            lines = file.readlines()
-    except FileNotFoundError:
-        return "", False
-    
-    # First pass: look for standalone word matches
-    standalone_output = "========\n"
-    substring_output = "========\n"
-    
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 4:
-            mingrelian, ipa, russian, georgian = parts[0], parts[1], parts[2], parts[3]
-            if mingrelian and russian and georgian:
-                formatted_entry = _format_kk_entry(
-                    mingrelian.strip(),
-                    russian.strip(),
-                    georgian.strip(),
-                )
-                # Check if word appears as standalone
-                if (_is_standalone_match(mingrelian, word) or 
-                    _is_standalone_match(russian, word) or 
-                    _is_standalone_match(georgian, word)):
-                    standalone_output += formatted_entry + "\n"
-                    standalone_output += "========\n"
-                elif _is_substring_match(line, word) or _is_substring_match(line, word.lower()):
-                    # Word appears as substring
-                    substring_output += formatted_entry + "\n"
-                    substring_output += "========\n"
-    
-    # Return standalone matches if found, otherwise substring matches (unless standalone_only)
-    if standalone_output != "========\n":
-        return standalone_output, True
-    elif (not standalone_only) and substring_output != "========\n":
-        return substring_output, False
-    return "", False
+    result = get_dictionary_store().search_kk(word, standalone_only=standalone_only)
+    return result.output, result.has_standalone_matches
 
 
 # Georgian
@@ -342,35 +74,7 @@ def grep_search_kajaia(word: str, *, standalone_only: bool = False) -> str:
     Splits text by empty lines and returns the block containing the search term.
     Prioritizes standalone word matches over substring matches.
     """
-    file_path = _get_data_path("kajaia_cleaned.txt")
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            kajaia_text = file.read()
-    except FileNotFoundError:
-        return ""
-    
-    entries = re.split(r'\n\s*\n', kajaia_text.strip())
-    
-    # First pass: look for standalone word matches
-    standalone_output = "========\n"
-    substring_output = "========\n"
-    
-    for entry in entries:
-        if _is_standalone_match(entry, word):
-            # Standalone match found
-            standalone_output += entry.strip()
-            standalone_output += "\n========\n"
-        elif _is_substring_match(entry, word):
-            # Substring match
-            substring_output += entry.strip()
-            substring_output += "\n========\n"
-    
-    # Return standalone matches if found, otherwise substring matches (unless standalone_only)
-    if standalone_output != "========\n":
-        return standalone_output
-    elif (not standalone_only) and substring_output != "========\n":
-        return substring_output
-    return ""
+    return get_dictionary_store().search_context(word, standalone_only=standalone_only)
 
 
 def grep_search_from_english(word: str) -> str:
@@ -853,72 +557,41 @@ def check_exact_match_simple(input_text: str, source_lang: str, target_lang: str
     
     This is the simple direct lookup without Google Translate augmentation.
     """
-    input_lower = input_text.lower().strip()
+    store = get_dictionary_store()
     
     # Check sentence_pairs.tsv (Mingrelian ↔ English)
     if (source_lang, target_lang) in [("mingrelian", "english"), ("english", "mingrelian")]:
-        try:
-            file_path = _get_data_path("sentence_pairs.tsv")
-            with open(file_path, 'r', encoding='utf-8') as file:
-                for line in file:
-                    parts = line.strip().split("\t")
-                    if len(parts) >= 2:
-                        mingrelian, english = parts[0].strip(), parts[1].strip()
-                        if source_lang == "mingrelian" and mingrelian.lower() == input_lower:
-                            return english
-                        elif source_lang == "english" and english.lower() == input_lower:
-                            return mingrelian
-        except FileNotFoundError:
-            pass
+        if source_lang == "mingrelian":
+            matches = store.exact_sentence_mingrelian(input_text)
+            if matches:
+                return matches[0].english
+        else:
+            matches = store.exact_sentence_english(input_text)
+            if matches:
+                return matches[0].mingrelian
     
     # Check kk.tsv (Mingrelian ↔ Russian ↔ Georgian)
-    try:
-        file_path = _get_data_path("kk.tsv")
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                parts = line.strip().split("\t")
-                if len(parts) >= 4:
-                    mingrelian, ipa, russian, georgian = parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
-                    
-                    # Mingrelian → Georgian
-                    if source_lang == "mingrelian" and target_lang == "georgian":
-                        if mingrelian.lower() == input_lower:
-                            georgian_primary, _ = _split_figurative_gloss(georgian, "ka")
-                            return georgian_primary or georgian
-                    
-                    # Georgian → Mingrelian
-                    elif source_lang == "georgian" and target_lang == "mingrelian":
-                        if georgian.lower() == input_lower:
-                            return mingrelian
-                    
-                    # Mingrelian → English
-                    elif source_lang == "mingrelian" and target_lang == "english":
-                        if mingrelian.lower() == input_lower:
-                            # We don't have English in kk, skip
-                            pass
-    except FileNotFoundError:
-        pass
+    if source_lang == "mingrelian" and target_lang == "georgian":
+        matches = store.exact_kk_mingrelian(input_text)
+        if matches:
+            georgian_primary, _ = _split_figurative_gloss(matches[0].georgian, "ka")
+            return georgian_primary or matches[0].georgian
+
+    elif source_lang == "georgian" and target_lang == "mingrelian":
+        matches = store.exact_kk_georgian(input_text)
+        if matches:
+            return matches[0].mingrelian
     
     # Check gal.tsv (Russian ↔ Mingrelian)
-    try:
-        file_path = _get_data_path("gal.tsv")
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                parts = line.strip().split("\t")
-                if len(parts) >= 2:
-                    russian, mingrelian = parts[0].strip(), parts[1].strip()
-                    
-                    # Russian → Mingrelian
-                    if source_lang == "russian" and target_lang == "mingrelian":
-                        if russian.lower() == input_lower:
-                            return mingrelian
-                    
-                    # Mingrelian → Russian
-                    elif source_lang == "mingrelian" and target_lang == "russian":
-                        if mingrelian.lower() == input_lower:
-                            return russian
-    except FileNotFoundError:
-        pass
+    if source_lang == "russian" and target_lang == "mingrelian":
+        matches = store.exact_gal_russian(input_text)
+        if matches:
+            return matches[0].mingrelian
+
+    elif source_lang == "mingrelian" and target_lang == "russian":
+        matches = store.exact_gal_mingrelian(input_text)
+        if matches:
+            return matches[0].russian
     
     return None
 
@@ -936,59 +609,32 @@ def find_mingrelian_in_dicts(text: str, target_lang: Optional[str] = None) -> Op
     Returns:
         tuple or None: (mingrelian_text, other_lang_text, lang_code) if found
     """
-    text_lower = text.lower().strip()
+    store = get_dictionary_store()
     
     # Priority 1: Search sentence_pairs.tsv (English ↔ Mingrelian, cleanest)
-    try:
-        file_path = _get_data_path("sentence_pairs.tsv")
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                parts = line.strip().split("\t")
-                if len(parts) >= 2:
-                    mingrelian, english = parts[0].strip(), parts[1].strip()
-                    if mingrelian.lower() == text_lower:
-                        return (mingrelian, english, "en")
-                    elif english.lower() == text_lower:
-                        return (mingrelian, english, "en")
-    except FileNotFoundError:
-        pass
+    for row in store.exact_sentence_mingrelian(text):
+        return (row.mingrelian, row.english, "en")
+    for row in store.exact_sentence_english(text):
+        return (row.mingrelian, row.english, "en")
     
     # Priority 2: Search gal.tsv (Russian ↔ Mingrelian, reliable)
-    try:
-        file_path = _get_data_path("gal.tsv")
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                parts = line.strip().split("\t")
-                if len(parts) >= 2:
-                    russian, mingrelian = parts[0].strip(), parts[1].strip()
-                    if mingrelian.lower() == text_lower:
-                        return (mingrelian, russian, "ru")
-                    elif russian.lower() == text_lower:
-                        return (mingrelian, russian, "ru")
-    except FileNotFoundError:
-        pass
+    for row in store.exact_gal_mingrelian(text):
+        return (row.mingrelian, row.russian, "ru")
+    for row in store.exact_gal_russian(text):
+        return (row.mingrelian, row.russian, "ru")
     
     # Priority 3: Search kk.tsv (may have data quality issues, use as fallback)
-    try:
-        file_path = _get_data_path("kk.tsv")
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                parts = line.strip().split("\t")
-                if len(parts) >= 4:
-                    mingrelian, ipa, russian, georgian = parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
-                    if mingrelian.lower() == text_lower:
-                        bridge_text, lang_code = _choose_kk_bridge_gloss(russian, georgian, target_lang)
-                        if bridge_text and lang_code:
-                            return (mingrelian, bridge_text, lang_code)
-                        return (mingrelian, georgian, "ka")
-                    elif georgian.lower() == text_lower:
-                        georgian_primary, _ = _split_figurative_gloss(georgian, "ka")
-                        return (mingrelian, georgian_primary or georgian, "ka")
-                    elif russian.lower() == text_lower:
-                        russian_primary, _ = _split_figurative_gloss(russian, "ru")
-                        return (mingrelian, russian_primary or russian, "ru")
-    except FileNotFoundError:
-        pass
+    for row in store.exact_kk_mingrelian(text):
+        bridge_text, lang_code = _choose_kk_bridge_gloss(row.russian, row.georgian, target_lang)
+        if bridge_text and lang_code:
+            return (row.mingrelian, bridge_text, lang_code)
+        return (row.mingrelian, row.georgian, "ka")
+    for row in store.exact_kk_georgian(text):
+        georgian_primary, _ = _split_figurative_gloss(row.georgian, "ka")
+        return (row.mingrelian, georgian_primary or row.georgian, "ka")
+    for row in store.exact_kk_russian(text):
+        russian_primary, _ = _split_figurative_gloss(row.russian, "ru")
+        return (row.mingrelian, russian_primary or row.russian, "ru")
     
     return None
 
