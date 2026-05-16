@@ -17,6 +17,13 @@ from functools import wraps
 LOGS_DIR = Path(__file__).parent.parent / 'logs'
 LOG_TO_FILE_ENV = 'LOG_TO_FILE'
 _TRUE_VALUES = {'1', 'true', 'yes', 'on'}
+CONSOLE_HANDLER_NAME = 'margo_console'
+TRANSLATOR_FILE_HANDLER_NAME = 'margo_translator_file'
+ERROR_FILE_HANDLER_NAME = 'margo_error_file'
+FILE_HANDLER_NAMES = {
+    TRANSLATOR_FILE_HANDLER_NAME,
+    ERROR_FILE_HANDLER_NAME,
+}
 
 # Configure logging level from environment variable (default: INFO)
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -37,9 +44,21 @@ def _has_named_handler(logger: logging.Logger, handler_name: str) -> bool:
     return any(getattr(handler, 'name', None) == handler_name for handler in logger.handlers)
 
 
+def _remove_named_handlers(logger: logging.Logger, handler_names: set[str]) -> None:
+    """Remove and close handlers managed by this module."""
+    for handler in list(logger.handlers):
+        if getattr(handler, 'name', None) in handler_names:
+            logger.removeHandler(handler)
+            handler.close()
+
+
 def _has_file_logging(logger: logging.Logger) -> bool:
     """Return whether file logging is attached to this logger."""
-    return any(isinstance(handler, logging.FileHandler) for handler in logger.handlers)
+    return any(
+        isinstance(handler, logging.FileHandler)
+        and getattr(handler, 'name', None) in FILE_HANDLER_NAMES
+        for handler in logger.handlers
+    )
 
 
 def _truncated_suffix(kind: str, logger: logging.Logger) -> str:
@@ -69,14 +88,17 @@ def setup_logger(name: str = 'mingrelian_translator') -> logging.Logger:
     )
 
     # Console handler (INFO and above)
-    if not _has_named_handler(logger, 'margo_console'):
+    if not _has_named_handler(logger, CONSOLE_HANDLER_NAME):
         console_handler = logging.StreamHandler()
-        console_handler.name = 'margo_console'
+        console_handler.name = CONSOLE_HANDLER_NAME
         console_handler.setLevel(logging.INFO)
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
 
-    if _log_to_file_enabled():
+    log_to_file = _log_to_file_enabled()
+    if not log_to_file:
+        _remove_named_handlers(logger, FILE_HANDLER_NAMES)
+    else:
         file_formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
@@ -85,19 +107,19 @@ def setup_logger(name: str = 'mingrelian_translator') -> logging.Logger:
         log_date = datetime.now().strftime("%Y%m%d")
 
         # File handler - main log (all levels)
-        if not _has_named_handler(logger, 'margo_translator_file'):
+        if not _has_named_handler(logger, TRANSLATOR_FILE_HANDLER_NAME):
             log_file = LOGS_DIR / f'translator_{log_date}.log'
             file_handler = logging.FileHandler(log_file)
-            file_handler.name = 'margo_translator_file'
+            file_handler.name = TRANSLATOR_FILE_HANDLER_NAME
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(file_formatter)
             logger.addHandler(file_handler)
 
         # File handler - errors only
-        if not _has_named_handler(logger, 'margo_error_file'):
+        if not _has_named_handler(logger, ERROR_FILE_HANDLER_NAME):
             error_log_file = LOGS_DIR / f'errors_{log_date}.log'
             error_handler = logging.FileHandler(error_log_file)
-            error_handler.name = 'margo_error_file'
+            error_handler.name = ERROR_FILE_HANDLER_NAME
             error_handler.setLevel(logging.ERROR)
             error_handler.setFormatter(file_formatter)
             logger.addHandler(error_handler)

@@ -49,8 +49,9 @@ LLM_PROVIDER=openai  # or "anthropic" or "gemini"
 # Default model (optional)
 LLM_MODEL=gpt-5.4-nano  # or gpt-5.4-mini, gpt-5.4, claude-sonnet-4-5-20250929, gemini-3.1-flash-lite-preview, etc.
 
-# Logging level (optional, defaults to INFO)
-LOG_LEVEL=INFO  # or DEBUG for more verbose logs
+# Logging (optional, defaults to INFO console logs only)
+LOG_LEVEL=INFO
+LOG_TO_FILE=false  # set true with LOG_LEVEL=DEBUG for full prompt/response file logs
 ```
 
 ### 3. Run the Server
@@ -202,7 +203,7 @@ Console logs are enabled by default. File logging is opt-in so tests and eval ru
 
 Set `LOG_TO_FILE=true` to save logs to the `logs/` directory:
 
-- `translator_YYYYMMDD.log` - All logs (DEBUG level and above)
+- `translator_YYYYMMDD.log` - Logs at the configured `LOG_LEVEL` and above
 - `errors_YYYYMMDD.log` - Error logs only
 
 **Log files include:**
@@ -215,8 +216,8 @@ Set `LOG_TO_FILE=true` to save logs to the `logs/` directory:
 
 **Environment variable:**
 ```bash
-LOG_LEVEL=DEBUG   # Capture DEBUG details such as full prompts/responses
-LOG_TO_FILE=true  # Enable logs/translator_YYYYMMDD.log and logs/errors_YYYYMMDD.log
+LOG_LEVEL=DEBUG   # Include DEBUG details such as full prompts/responses
+LOG_TO_FILE=true  # Write logs/translator_YYYYMMDD.log and logs/errors_YYYYMMDD.log
 ```
 
 ## Translation Analytics
@@ -279,7 +280,11 @@ argo/
 
 ### Running Tests
 
-There is no automated unit test suite checked into this repo yet.
+Run the checked-in unit tests:
+
+```bash
+python3 -m unittest discover -s tests
+```
 
 For a quick verification pass:
 

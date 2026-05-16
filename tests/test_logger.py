@@ -100,6 +100,28 @@ class LoggerSetupTests(unittest.TestCase):
             self.assertEqual(2, len(file_handlers))
             self.assertTrue(logs_dir.exists())
 
+    def test_setup_logger_removes_file_handlers_when_disabled_after_enabled(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logs_dir = Path(tmpdir) / 'logs'
+            self.logger_module.LOGS_DIR = logs_dir
+            logger_name = 'test_file_logger_true_to_false'
+            os.environ['LOG_TO_FILE'] = 'true'
+
+            logger = self.setup_test_logger(logger_name)
+            file_handlers = [
+                handler
+                for handler in logger.handlers
+                if isinstance(handler, logging.FileHandler)
+            ]
+            self.assertEqual(2, len(file_handlers))
+
+            os.environ['LOG_TO_FILE'] = 'false'
+            logger = self.logger_module.setup_logger(logger_name)
+
+            self.assertTrue(any(handler.name == 'margo_console' for handler in logger.handlers))
+            self.assertFalse(any(isinstance(handler, logging.FileHandler) for handler in logger.handlers))
+            self.assertTrue(all(handler.stream is None for handler in file_handlers))
+
 
 if __name__ == '__main__':
     unittest.main()
