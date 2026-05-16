@@ -258,7 +258,8 @@ argo/
 │       ├── context_source.txt
 │       └── harris.txt
 ├── src/
-│   ├── single_call_translator.py  # Core translation logic
+│   ├── single_call_translator.py  # Backward-compatible translator facade
+│   ├── translator/                # Translation data, lookup, prompts, extraction, pipeline
 │   ├── llm_client.py              # LLM provider abstraction
 │   └── logger.py                  # Logging configuration
 ├── eval/                   # Promptfoo configs and evaluation helpers
@@ -276,18 +277,17 @@ argo/
 
 ### Running Tests
 
-There is no automated unit test suite checked into this repo yet.
-
 For a quick verification pass:
 
 ```bash
-python3 -m py_compile fastapi_app/api.py src/*.py eval/provider.py
+python3 -m py_compile fastapi_app/api.py src/*.py src/translator/*.py eval/provider.py
+python3 -m unittest discover -s tests
 ```
 
 ### Adding New Dictionary Data
 
 1. Add TSV/TXT files to `fastapi_app/data/`
-2. Update search functions in `src/single_call_translator.py`
+2. Update loaders/search functions in `src/translator/data.py` and `src/translator/lookup.py`
 3. Add to prompt construction as needed
 
 ### Debugging
