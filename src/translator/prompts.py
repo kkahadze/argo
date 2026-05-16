@@ -169,7 +169,8 @@ The dictionary may have definitions in Russian, Georgian, or English.'''
         prompt += f'''
 Please use these resources to aid you in your translation.
 
-You will translate the following phrase/sentence: "{sentence}". Return any notes you want, then end with:
+You will translate the following phrase/sentence: "{sentence}".
+Return only the final translation in this exact block. Do not include notes, explanations, glosses, markdown, bullets, or text outside the block:
 <<<TRANSLATION>>>
 FINAL_TRANSLATION_HERE
 <<<END_TRANSLATION>>>
@@ -183,7 +184,8 @@ Here are exact candidate translations for the full input. Treat these as high-pr
 
 Please use these resources to aid you in your translation.
 
-You will translate the following phrase/sentence: "{sentence}". Return any notes you want, then end with:
+You will translate the following phrase/sentence: "{sentence}".
+Return only the final translation in this exact block. Do not include notes, explanations, glosses, markdown, bullets, or text outside the block:
 <<<TRANSLATION>>>
 FINAL_TRANSLATION_HERE
 <<<END_TRANSLATION>>>
@@ -210,7 +212,7 @@ That is the end of the grammar information.
     prompt += f'''
 Now remember, we are translating the following sentence: "{sentence}" from {in_label} to {out_label}.
 
-Return any notes you want, then end with:
+Return only the final translation in this exact block. Do not include notes, explanations, glosses, markdown, bullets, or text outside the block:
 <<<TRANSLATION>>>
 FINAL_TRANSLATION_HERE
 <<<END_TRANSLATION>>>

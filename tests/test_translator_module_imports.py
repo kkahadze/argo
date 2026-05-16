@@ -57,6 +57,23 @@ class TranslatorModuleImportSmokeTest(unittest.TestCase):
 
         self.assertEqual(legacy_translator.extract_translation(response), "test answer")
 
+    def test_extract_translation_avoids_commentary_fallback_for_mingrelian(self):
+        response = """To translate "He/she took it" into Mingrelian:
+
+1. **Verb:** The verb is represented as *geeč'opu*.
+2. **Agreement:** The form shows the completed action.
+
+გეეჩოფუ თინა
+"""
+
+        self.assertEqual(
+            legacy_translator.extract_translation(
+                response,
+                target_language="mingrelian",
+            ),
+            "გეეჩოფუ თინა",
+        )
+
     def test_legacy_google_translator_monkeypatch_sync(self):
         original = legacy_translator.GoogleTranslator
         try:

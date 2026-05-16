@@ -59,8 +59,10 @@ create index if not exists translation_events_used_llm_idx
 alter table public.translation_events enable row level security;
 
 grant usage on schema public to anon, authenticated;
-revoke select, update, delete on public.translation_events from anon, authenticated;
+revoke all on public.translation_events from public;
+revoke all on public.translation_events from anon, authenticated;
 grant insert on public.translation_events to anon, authenticated;
+grant all on public.translation_events to service_role;
 
 drop policy if exists "translation_events_insert_only" on public.translation_events;
 create policy "translation_events_insert_only"

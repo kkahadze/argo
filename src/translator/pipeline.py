@@ -201,7 +201,7 @@ def translate(
 
     # Extract the translation
     stage_start = time.time()
-    translation = extract_translation(response)
+    translation = extract_translation(response, target_language=target_lang)
     log_stage_timing(logger, "Response Extraction", time.time() - stage_start)
 
     total_time = time.time() - overall_start
