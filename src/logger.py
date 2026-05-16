@@ -14,17 +14,43 @@ from contextlib import contextmanager
 from functools import wraps
 
 
-# Create logs directory
 LOGS_DIR = Path(__file__).parent.parent / 'logs'
-LOGS_DIR.mkdir(exist_ok=True)
+LOG_TO_FILE_ENV = 'LOG_TO_FILE'
+_TRUE_VALUES = {'1', 'true', 'yes', 'on'}
 
 # Configure logging level from environment variable (default: INFO)
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 
 
+def _log_to_file_enabled() -> bool:
+    """Return whether file logging is enabled by environment."""
+    return os.getenv(LOG_TO_FILE_ENV, '').strip().lower() in _TRUE_VALUES
+
+
+def _log_level() -> int:
+    """Resolve the configured log level, falling back to INFO."""
+    return getattr(logging, os.getenv('LOG_LEVEL', LOG_LEVEL).upper(), logging.INFO)
+
+
+def _has_named_handler(logger: logging.Logger, handler_name: str) -> bool:
+    """Return whether this logger already has one of our configured handlers."""
+    return any(getattr(handler, 'name', None) == handler_name for handler in logger.handlers)
+
+
+def _has_file_logging(logger: logging.Logger) -> bool:
+    """Return whether file logging is attached to this logger."""
+    return any(isinstance(handler, logging.FileHandler) for handler in logger.handlers)
+
+
+def _truncated_suffix(kind: str, logger: logging.Logger) -> str:
+    if _has_file_logging(logger):
+        return f"[truncated, see log file for full {kind}]"
+    return f"[truncated, enable {LOG_TO_FILE_ENV}=true for full {kind} logs]"
+
+
 def setup_logger(name: str = 'mingrelian_translator') -> logging.Logger:
     """
-    Set up a logger with file and console handlers.
+    Set up a logger with console logging and optional file logging.
     
     Args:
         name: Logger name
@@ -33,43 +59,48 @@ def setup_logger(name: str = 'mingrelian_translator') -> logging.Logger:
         logging.Logger: Configured logger
     """
     logger = logging.getLogger(name)
-    logger.setLevel(getattr(logging, LOG_LEVEL))
+    logger.setLevel(_log_level())
     logger.propagate = False
-    
-    # Avoid duplicate handlers
-    if logger.handlers:
-        return logger
-    
+
     # Create formatters
     console_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
+
     # Console handler (INFO and above)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
-    
-    # File handler - main log (all levels)
-    log_file = LOGS_DIR / f'translator_{datetime.now().strftime("%Y%m%d")}.log'
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
-    
-    # File handler - errors only
-    error_log_file = LOGS_DIR / f'errors_{datetime.now().strftime("%Y%m%d")}.log'
-    error_handler = logging.FileHandler(error_log_file)
-    error_handler.setLevel(logging.ERROR)
-    error_handler.setFormatter(file_formatter)
-    logger.addHandler(error_handler)
+    if not _has_named_handler(logger, 'margo_console'):
+        console_handler = logging.StreamHandler()
+        console_handler.name = 'margo_console'
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(console_formatter)
+        logger.addHandler(console_handler)
+
+    if _log_to_file_enabled():
+        file_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        LOGS_DIR.mkdir(exist_ok=True)
+        log_date = datetime.now().strftime("%Y%m%d")
+
+        # File handler - main log (all levels)
+        if not _has_named_handler(logger, 'margo_translator_file'):
+            log_file = LOGS_DIR / f'translator_{log_date}.log'
+            file_handler = logging.FileHandler(log_file)
+            file_handler.name = 'margo_translator_file'
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(file_formatter)
+            logger.addHandler(file_handler)
+
+        # File handler - errors only
+        if not _has_named_handler(logger, 'margo_error_file'):
+            error_log_file = LOGS_DIR / f'errors_{log_date}.log'
+            error_handler = logging.FileHandler(error_log_file)
+            error_handler.name = 'margo_error_file'
+            error_handler.setLevel(logging.ERROR)
+            error_handler.setFormatter(file_formatter)
+            logger.addHandler(error_handler)
     
     return logger
 
@@ -104,14 +135,14 @@ def log_prompt(
         prompt: The full prompt sent to LLM
         source_lang: Source language
         target_lang: Target language
-        truncate: Whether to truncate long prompts in console (still logs full to file)
+        truncate: Whether to truncate long prompts in console
     """
-    # Log full prompt to file at DEBUG level
+    # Full details are visible when LOG_LEVEL/handlers allow DEBUG messages.
     logger.debug(f"Full prompt ({source_lang} → {target_lang}):\n{prompt}")
     
     # Log truncated version to console at INFO level
     if truncate and len(prompt) > 500:
-        logger.info(f"Prompt preview: {prompt[:500]}... [truncated, see log file for full prompt]")
+        logger.info(f"Prompt preview: {prompt[:500]}... {_truncated_suffix('prompt', logger)}")
     else:
         logger.info(f"Prompt: {prompt}")
 
@@ -133,12 +164,12 @@ def log_llm_response(
         target_lang: Target language
         truncate: Whether to truncate long responses in console
     """
-    # Log full response to file at DEBUG level
+    # Full details are visible when LOG_LEVEL/handlers allow DEBUG messages.
     logger.debug(f"Full LLM response ({source_lang} → {target_lang}):\n{response}")
     
     # Log truncated version to console
     if truncate and len(response) > 300:
-        logger.info(f"Response preview: {response[:300]}... [truncated, see log file for full response]")
+        logger.info(f"Response preview: {response[:300]}... {_truncated_suffix('response', logger)}")
     else:
         logger.info(f"Response: {response}")
 

@@ -8,7 +8,7 @@ FastAPI backend for the Mingrelian translation application. Provides translation
 - **Multiple LLM Providers**: Support for OpenAI (GPT-5.4 family, GPT-5.2), Anthropic (Claude), and Google (Gemini)
 - **Smart Dictionary Lookups**: Standalone word matching with short-circuit optimization
 - **Google Translate Bridge**: Instant translations via high-resource language bridging
-- **Comprehensive Logging**: Structured logging for debugging prompts, responses, and errors
+- **Configurable Logging**: Console logging by default, with opt-in file logs for debugging prompts, responses, and errors
 - **Single API Call**: Optimized to use only one LLM call per translation
 
 ## Quick Start
@@ -198,7 +198,9 @@ Located in `fastapi_app/data/`:
 
 ## Logging
 
-Logs are automatically saved to the `logs/` directory:
+Console logs are enabled by default. File logging is opt-in so tests and eval runs do not create local log files unless you ask for them.
+
+Set `LOG_TO_FILE=true` to save logs to the `logs/` directory:
 
 - `translator_YYYYMMDD.log` - All logs (DEBUG level and above)
 - `errors_YYYYMMDD.log` - Error logs only
@@ -213,7 +215,8 @@ Logs are automatically saved to the `logs/` directory:
 
 **Environment variable:**
 ```bash
-LOG_LEVEL=DEBUG  # For more verbose logging
+LOG_LEVEL=DEBUG   # Capture DEBUG details such as full prompts/responses
+LOG_TO_FILE=true  # Enable logs/translator_YYYYMMDD.log and logs/errors_YYYYMMDD.log
 ```
 
 ## Translation Analytics
@@ -264,7 +267,7 @@ argo/
 ├── eval/                   # Promptfoo configs and evaluation helpers
 ├── supabase/
 │   └── translation_events.sql
-├── logs/                   # Log files (gitignored)
+├── logs/                   # Optional log files when LOG_TO_FILE=true (gitignored)
 ├── venv/                   # Virtual environment (gitignored)
 ├── .env                    # Environment variables (gitignored)
 ├── env.example             # Example environment file
@@ -292,7 +295,7 @@ python3 -m py_compile fastapi_app/api.py src/*.py eval/provider.py
 
 ### Debugging
 
-- Set `LOG_LEVEL=DEBUG` in `.env` for detailed logs
+- Set `LOG_LEVEL=DEBUG` and `LOG_TO_FILE=true` in `.env` to write full prompt/response logs
 - Check `logs/translator_YYYYMMDD.log` for full request/response traces
 - Check `logs/errors_YYYYMMDD.log` for error details
 
