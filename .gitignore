@@ -50,6 +50,20 @@ logs/
 *.log
 !logs/.gitkeep
 
+# Private runtime/eval corpora. Keep code public-safe; put local data in
+# private_data/ or another ARGO_DATA_DIR path.
+private_data/*
+!private_data/README.md
+fastapi_app/data/*.csv
+fastapi_app/data/*.tsv
+fastapi_app/data/*.txt
+!fastapi_app/data/README.md
+eval/datasets/*.csv
+!eval/datasets/README.md
+
+# Generated share packages
+share/
+
 # Text and data files
 /*.txt
 !requirements.txt
@@ -84,7 +98,5 @@ Thumbs.db
 */.ipynb_checkpoints/* 
 
 # texts
-!kajaia.txt
-!harris.txt
 bats/
 eval/redteam/redteam.yaml

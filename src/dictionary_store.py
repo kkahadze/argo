@@ -12,6 +12,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
+import os
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -54,19 +55,28 @@ class SearchResult:
 def get_data_path(filename: str) -> str:
     """Get the path to a data file, checking multiple possible locations."""
     project_root = Path(__file__).parent.parent
+    configured_data_dir = os.getenv("ARGO_DATA_DIR")
 
-    candidates = [
-        project_root / "fastapi_app" / "data" / filename,
-        project_root / "data" / filename,
-        project_root / "notebooks" / filename,
-        project_root / "notebooks" / "dicts" / filename,
-    ]
+    candidate_dirs = []
+    if configured_data_dir:
+        candidate_dirs.append(Path(configured_data_dir).expanduser())
 
-    for candidate in candidates:
+    candidate_dirs.extend(
+        [
+            project_root / "private_data",
+            project_root / "fastapi_app" / "data",
+            project_root / "data",
+            project_root / "notebooks",
+            project_root / "notebooks" / "dicts",
+        ]
+    )
+
+    for data_dir in candidate_dirs:
+        candidate = data_dir / filename
         if candidate.exists():
             return str(candidate)
 
-    return str(candidates[0])
+    return str(project_root / "private_data" / filename)
 
 
 def normalize_lookup_value(text: str) -> str:

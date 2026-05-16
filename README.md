@@ -27,6 +27,47 @@ source venv/bin/activate
 pip install -r fastapi_app/requirements.txt
 ```
 
+### Private Runtime Data
+
+The public repository does not include the full dictionary/reference corpora.
+For local full-quality translation, put the private files in `private_data/`
+at the repo root, or set `ARGO_DATA_DIR` to another folder with the same
+filenames:
+
+```text
+private_data/
+├── sentence_pairs.tsv
+├── gal.tsv
+├── kk.tsv
+├── kajaia_cleaned.txt
+└── harris.txt
+```
+
+`private_data/` is ignored by git, so the code can be public while the corpora
+stay local/private.
+
+### Share A Complete Private Bundle
+
+To send someone the code plus your private data in one zip:
+
+```bash
+bash scripts/build_share_bundle.sh
+```
+
+Send `share/argo-share.zip`. The recipient only needs:
+
+```bash
+unzip argo-share.zip
+cd argo-share/argo
+bash run_local.sh
+```
+
+If your private files live somewhere else, run:
+
+```bash
+ARGO_PRIVATE_DATA_DIR=/path/to/private/data bash scripts/build_share_bundle.sh
+```
+
 ### 2. Set Up Environment Variables
 
 Create a `.env` file in the argo root directory:
@@ -164,7 +205,8 @@ User Input
 
 ### Dictionary Data Sources
 
-Located in `fastapi_app/data/`:
+Private runtime corpora are loaded from `ARGO_DATA_DIR` when set, then
+`private_data/`, then `fastapi_app/data/` for any public/sample fixtures:
 
 1. **sentence_pairs.tsv** - English-Mingrelian parallel sentences
 2. **gal.tsv** - Russian-Mingrelian dictionary
@@ -238,20 +280,16 @@ argo/
 ├── fastapi_app/
 │   ├── api.py              # FastAPI application & /chat endpoint
 │   ├── requirements.txt    # Python dependencies
-│   └── data/               # Dictionary and reference data
-│       ├── sentence_pairs.tsv
-│       ├── gal.tsv
-│       ├── kk.tsv
-│       ├── kajaia_cleaned.txt
-│       └── harris.txt
+│   └── data/               # Public data docs/sample fixtures only
 ├── src/
 │   ├── single_call_translator.py  # Core translation logic
+│   ├── dictionary_store.py        # Dictionary loading and lookup indexes
 │   ├── llm_client.py              # LLM provider abstraction
-│   ├── transliterate.py           # Script conversion utilities
 │   └── logger.py                  # Logging configuration
-├── tests/
-│   ├── test_api.py         # API testing script
-│   └── test.html           # HTML test interface
+├── private_data/           # Ignored private corpora for local/full-quality runs
+├── scripts/
+│   └── build_share_bundle.sh # Build code+private-data zip for sharing
+├── tests/                  # Unit tests with synthetic fixtures
 ├── logs/                   # Log files (gitignored)
 ├── venv/                   # Virtual environment (gitignored)
 ├── .env                    # Environment variables (gitignored)
@@ -265,18 +303,15 @@ argo/
 ### Running Tests
 
 ```bash
-# Test the API
-python tests/test_api.py --text "მა" --source mingrelian --target english
-
-# Or use the HTML interface
-open tests/test.html
+python3 -m unittest discover -s tests
 ```
 
 ### Adding New Dictionary Data
 
-1. Add TSV/TXT files to `fastapi_app/data/`
+1. Add private TSV/TXT/CSV files to `private_data/` or an `ARGO_DATA_DIR` folder
 2. Update search functions in `src/single_call_translator.py`
 3. Add to prompt construction as needed
+4. Commit only docs, code, and small public sample fixtures unless the data has clear redistribution rights
 
 ### Debugging
 
@@ -303,7 +338,7 @@ When contributing:
 
 1. Keep all LLM calls centralized in `src/llm_client.py`
 2. Add comprehensive logging for debugging
-3. Update dictionary data in `fastapi_app/data/` as needed
+3. Keep private dictionary/reference data out of git; use `private_data/` or `ARGO_DATA_DIR`
 4. Test with multiple LLM providers
 5. Update this README with any architectural changes
 
