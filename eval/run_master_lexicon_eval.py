@@ -29,6 +29,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.llm_client import LLMClient
+from src.provider_config import DEFAULT_MODEL_BY_PROVIDER, DEFAULT_PROVIDER
 from src.single_call_translator import translate
 
 
@@ -122,8 +123,12 @@ def main() -> int:
     )
     parser.add_argument("--sample-size", type=int, default=100, help="Sample size per direction")
     parser.add_argument("--seed", type=int, default=20260412, help="Random seed")
-    parser.add_argument("--provider", default="openai", help="LLM provider")
-    parser.add_argument("--model", default="gpt-5.4-nano", help="Model name")
+    parser.add_argument("--provider", default=DEFAULT_PROVIDER, help="LLM provider")
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER],
+        help="Model name",
+    )
     parser.add_argument(
         "--output",
         default="eval/results/master-lexicon-sampled-eval.json",
