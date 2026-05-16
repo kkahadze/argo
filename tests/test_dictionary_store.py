@@ -1,5 +1,10 @@
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
+from src import dictionary_store
 from src.dictionary_store import get_dictionary_store
 from src.single_call_translator import (
     check_exact_match_simple,
@@ -10,6 +15,50 @@ from src.single_call_translator import (
 
 
 class DictionaryStoreTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.data_dir = Path(self.temp_dir.name)
+        self._write_test_data()
+
+        self.env_patch = patch.dict(os.environ, {"ARGO_DATA_DIR": str(self.data_dir)}, clear=False)
+        self.env_patch.start()
+        self._clear_caches()
+
+        self.addCleanup(self._clear_caches)
+        self.addCleanup(self.env_patch.stop)
+        self.addCleanup(self.temp_dir.cleanup)
+
+    def _write_test_data(self):
+        (self.data_dir / "sentence_pairs.tsv").write_text(
+            "Mingrelian\tEnglish\n"
+            "გომორძგუა\tHello\n",
+            encoding="utf-8",
+        )
+        (self.data_dir / "gal.tsv").write_text(
+            "Russian\tMingrelian\n"
+            "Я\tმა\n",
+            encoding="utf-8",
+        )
+        (self.data_dir / "kk.tsv").write_text(
+            "word\tipa\trussian_def\tgeorgian_def\n"
+            "აბაზი\tabazi\tдвугривенный, двадцать копеек\tაბაზი, ოცი კაპიკი\n",
+            encoding="utf-8",
+        )
+        (self.data_dir / "translation_overrides.tsv").write_text(
+            "source_language\ttarget_language\tsource_text\ttarget_text\n"
+            "georgian\tmingrelian\tეკლესია\tოხვამე\n"
+            "georgian\tmingrelian\tკვერცხი\tკვერცხი\n"
+            "english\tmingrelian\thello\tგომორძგუა\n"
+            "english\tgeorgian\twhat language is this\tრა ენაა ეს\n",
+            encoding="utf-8",
+        )
+        (self.data_dir / "kajaia_cleaned.txt").write_text("", encoding="utf-8")
+        (self.data_dir / "harris.txt").write_text("", encoding="utf-8")
+
+    def _clear_caches(self):
+        dictionary_store._get_dictionary_store_cached.cache_clear()
+        dictionary_store._compiled_word_pattern.cache_clear()
+
     def test_store_is_cached_and_skips_tsv_headers(self):
         first_store = get_dictionary_store()
         second_store = get_dictionary_store()
@@ -30,6 +79,10 @@ class DictionaryStoreTests(unittest.TestCase):
         self.assertEqual(
             check_exact_match_simple("hello", "english", "mingrelian"),
             "გომორძგუა",
+        )
+        self.assertEqual(
+            check_exact_match_simple("კვერცხი", "georgian", "mingrelian"),
+            "კვერცხი",
         )
         self.assertEqual(
             check_exact_match_simple("what language is this", "english", "georgian"),

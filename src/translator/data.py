@@ -21,6 +21,16 @@ def _master_lexicon_enabled() -> bool:
 
 def _get_data_path(filename: str) -> str:
     """Get the path to a data file, checking multiple possible locations."""
+    configured_data_dir = os.getenv("ARGO_DATA_DIR")
+    if configured_data_dir:
+        configured_path = Path(configured_data_dir).expanduser() / filename
+        if configured_path.exists():
+            return str(configured_path)
+
+    private_data = REPO_ROOT / 'private_data' / filename
+    if private_data.exists():
+        return str(private_data)
+
     # Try fastapi_app/data first (for API usage)
     fastapi_data = REPO_ROOT / 'fastapi_app' / 'data' / filename
     if fastapi_data.exists():

@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -41,10 +43,14 @@ class TranslatorModuleImportSmokeTest(unittest.TestCase):
         self.assertIn(("georgian", "mingrelian"), legacy_translator.PROMPT_BUILDERS)
 
     def test_legacy_data_path_resolution_still_finds_repo_data(self):
-        sentence_pairs_path = Path(legacy_translator._get_data_path("sentence_pairs.tsv"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            (data_dir / "sentence_pairs.tsv").write_text("", encoding="utf-8")
+            with patch.dict(os.environ, {"ARGO_DATA_DIR": str(data_dir)}, clear=False):
+                sentence_pairs_path = Path(legacy_translator._get_data_path("sentence_pairs.tsv"))
 
-        self.assertTrue(sentence_pairs_path.exists())
-        self.assertEqual(sentence_pairs_path.name, "sentence_pairs.tsv")
+            self.assertTrue(sentence_pairs_path.exists())
+            self.assertEqual(sentence_pairs_path.name, "sentence_pairs.tsv")
 
     def test_extract_translation_marker_path(self):
         response = "Notes\n<<<TRANSLATION>>>\nTranslation: test answer\n<<<END_TRANSLATION>>>"

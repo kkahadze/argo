@@ -103,6 +103,9 @@ def _collect_simple_exact_match_candidates(
             }
         )
 
+    if candidates:
+        return candidates
+
     # sentence_pairs.tsv (Mingrelian ↔ English)
     if (source_lang, target_lang) in [("mingrelian", "english"), ("english", "mingrelian")]:
         if source_lang == "mingrelian":
