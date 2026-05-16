@@ -2,6 +2,7 @@
 """Translator package helpers split from src.single_call_translator."""
 
 import time
+from typing import Optional
 
 try:
     from deep_translator import GoogleTranslator
@@ -22,7 +23,12 @@ from src.translator.lookup import (
     check_exact_match_with_google_translate,
     collect_exact_match_candidates,
 )
-from src.translator.prompts import PROMPT_BUILDERS, _format_exact_candidate_block
+from src.translator.prompts import (
+    PROMPT_BUILDERS,
+    _format_exact_candidate_block,
+    _measure_prompt_sections,
+    _normalize_grammar_policy,
+)
 
 logger = setup_logger('translator')
 
@@ -30,7 +36,8 @@ def translate(
     input_text: str,
     source_lang: str,
     target_lang: str,
-    llm_client
+    llm_client,
+    grammar_policy: Optional[str] = None,
 ) -> dict:
     """
     Translate text using single LLM call approach.
@@ -49,6 +56,7 @@ def translate(
     skip_word_lookups = False
     instant_lookup_method = ""
     master_lexicon_enabled = _master_lexicon_enabled()
+    resolved_grammar_policy = _normalize_grammar_policy(grammar_policy)
 
     # OPTIMIZATION 1: Resolve exact full-input candidates before broader bridge logic.
     stage_start = time.time()
@@ -97,6 +105,7 @@ def translate(
                 'used_llm': False,
                 'exact_candidate_count': len(exact_candidates),
                 'master_lexicon_enabled': master_lexicon_enabled,
+                'grammar_policy': resolved_grammar_policy,
             },
         }
 
@@ -127,6 +136,7 @@ def translate(
                     'method': 'google_translate_en_ka',
                     'used_llm': False,
                     'master_lexicon_enabled': master_lexicon_enabled,
+                    'grammar_policy': resolved_grammar_policy,
                 },
             }
 
@@ -145,6 +155,7 @@ def translate(
                     'method': 'google_translate_ka_en',
                     'used_llm': False,
                     'master_lexicon_enabled': master_lexicon_enabled,
+                    'grammar_policy': resolved_grammar_policy,
                 },
             }
 
@@ -159,13 +170,20 @@ def translate(
         input_text,
         exact_candidates_block=exact_candidates_block,
         skip_word_lookups=skip_word_lookups,
+        grammar_policy=resolved_grammar_policy,
     )
+    prompt_section_metrics = _measure_prompt_sections(prompt)
     prompt_metrics = {
         'reason': 'llm',
         'used_llm': True,
-        'prompt_characters': len(prompt),
-        'used_grammar': 'Here is the Mingrelian grammar information:' in prompt,
-        'has_dictionary_entries': 'Here are some various dictionary entries for word(s) in that phrase:' in prompt,
+        'grammar_policy': resolved_grammar_policy,
+        'prompt_characters': prompt_section_metrics['prompt_characters'],
+        'prompt_chars': prompt_section_metrics['prompt_chars'],
+        'dict_entries_chars': prompt_section_metrics['dict_entries_chars'],
+        'grammar_chars': prompt_section_metrics['grammar_chars'],
+        'grammar_included': prompt_section_metrics['grammar_included'],
+        'used_grammar': prompt_section_metrics['grammar_included'],
+        'has_dictionary_entries': prompt_section_metrics['dict_entries_chars'] > 0,
         'exact_candidate_count': len(exact_candidates),
         'used_exact_candidate_shortlist': bool(exact_candidates_block),
         'skip_word_lookups': skip_word_lookups,

@@ -49,6 +49,7 @@ def call_api(prompt, options, context):
             - target_language: Target language (default: english)
             - temperature: Temperature setting (default: 1.0)
             - max_tokens: Max tokens (optional)
+            - reasoning_effort: OpenAI reasoning effort for GPT-5 family models (optional)
         context (dict): Additional context from promptfoo
     
     Returns:
@@ -67,6 +68,8 @@ def call_api(prompt, options, context):
         target_language = runtime_options.get('target_language', DEFAULT_TARGET_LANGUAGE)
         temperature = runtime_options.get('temperature', 1.0)
         max_tokens = runtime_options.get('max_tokens')
+        reasoning_effort = runtime_options.get('reasoning_effort')
+        grammar_policy = runtime_options.get('grammar_policy') or os.getenv('ARGO_GRAMMAR_POLICY')
         
         # Initialize LLM client
         llm_client = LLMClient(
@@ -74,7 +77,8 @@ def call_api(prompt, options, context):
             api_key=api_key,
             model=model,
             temperature=temperature,
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
         )
         
         # Perform translation (includes dynamic dictionary lookup and prompt construction)
@@ -82,7 +86,8 @@ def call_api(prompt, options, context):
             input_text=prompt,
             source_lang=source_language,
             target_lang=target_language,
-            llm_client=llm_client
+            llm_client=llm_client,
+            grammar_policy=grammar_policy,
         )
         
         # Return the translation
@@ -92,6 +97,7 @@ def call_api(prompt, options, context):
                 'full_response': result['full_response'],
                 'provider': provider,
                 'model': llm_client.model,
+                'reasoning_effort': reasoning_effort,
                 'source_language': source_language,
                 'target_language': target_language,
                 'response_source': result.get('response_source'),

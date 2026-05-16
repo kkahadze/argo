@@ -30,7 +30,8 @@ class LLMClient:
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         temperature: float = 1.0,
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ):
         """
         Initialize the LLM client.
@@ -41,10 +42,12 @@ class LLMClient:
             model: Model name to use (if None, will use default for provider)
             temperature: Sampling temperature (0.0 to 2.0)
             max_tokens: Maximum tokens in response (optional)
+            reasoning_effort: OpenAI reasoning effort for GPT-5 family models
         """
         self.provider = provider
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.reasoning_effort = reasoning_effort
 
         default_model = get_default_model_for_provider(provider)
         if default_model is None:
@@ -146,6 +149,8 @@ class LLMClient:
                 kwargs["temperature"] = self.temperature
             if self.max_tokens:
                 kwargs["max_output_tokens"] = self.max_tokens  # Note: different param name
+            if self.reasoning_effort:
+                kwargs["reasoning"] = {"effort": self.reasoning_effort}
             
             response = client.responses.create(**kwargs)
             

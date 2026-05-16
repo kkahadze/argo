@@ -20,6 +20,7 @@ _LOAD_CONTEXT_SOURCE_ENTRIES = _data._load_context_source_entries
 _LOAD_CONTEXT_SOURCE_ENTRIES_CACHED = _data._load_context_source_entries_cached
 _LOAD_GAL_ROWS = _data._load_gal_rows
 _LOAD_GAL_ROWS_CACHED = _data._load_gal_rows_cached
+_LOAD_COMPACT_GRAMMAR = _data._load_compact_grammar
 _LOAD_GRAMMAR = _data._load_grammar
 _LOAD_GRAMMAR_CACHED = _data._load_grammar_cached
 _LOAD_KK_ROWS = _data._load_kk_rows
@@ -49,6 +50,9 @@ _GREP_SEARCH_PAIRS = _lookup.grep_search_pairs
 _BUILD_DICT_ENTRIES = _prompts._build_dict_entries
 _CONSTRUCT_PROMPT = _prompts._construct_prompt
 _CONSTRUCT_TRANSLATION_PROMPT = _prompts._construct_translation_prompt
+_LOAD_GRAMMAR_FOR_POLICY = _prompts._load_grammar_for_policy
+_MEASURE_PROMPT_SECTIONS = _prompts._measure_prompt_sections
+_NORMALIZE_GRAMMAR_POLICY = _prompts._normalize_grammar_policy
 _CONSTRUCT_PROMPT_FROM_ENGLISH_TO_MINGRELIAN = _prompts.construct_prompt_from_english_to_mingrelian
 _CONSTRUCT_PROMPT_FROM_GEORGIAN_TO_MINGRELIAN = _prompts.construct_prompt_from_georgian_to_mingrelian
 _CONSTRUCT_PROMPT_FROM_MINGRELIAN_TO_ENGLISH = _prompts.construct_prompt_from_mingrelian_to_english
@@ -64,6 +68,7 @@ LANG_LABEL = _text_utils.LANG_LABEL
 LOOKUP_SEPARATOR = _text_utils.LOOKUP_SEPARATOR
 LOW_VALUE_LOOKUP_TERMS = _text_utils.LOW_VALUE_LOOKUP_TERMS
 MAX_LOOKUP_OUTPUT_CHARS = _text_utils.MAX_LOOKUP_OUTPUT_CHARS
+SUPPORTED_GRAMMAR_POLICIES = _prompts.SUPPORTED_GRAMMAR_POLICIES
 logger = _pipeline.logger
 
 _choose_kk_bridge_gloss = _text_utils._choose_kk_bridge_gloss
@@ -97,6 +102,7 @@ def _sync_compat_state() -> None:
     _data._load_context_source_entries_cached = _load_context_source_entries_cached
     _data._load_gal_rows = _load_gal_rows
     _data._load_gal_rows_cached = _load_gal_rows_cached
+    _data._load_compact_grammar = _load_compact_grammar
     _data._load_grammar = _load_grammar
     _data._load_grammar_cached = _load_grammar_cached
     _data._load_kk_rows = _load_kk_rows
@@ -150,7 +156,12 @@ def _sync_compat_state() -> None:
     _prompts._construct_prompt = _construct_prompt
     _prompts._construct_translation_prompt = _construct_translation_prompt
     _prompts._format_exact_candidate_block = _format_exact_candidate_block
+    _prompts._load_compact_grammar = _load_compact_grammar
     _prompts._load_grammar = _load_grammar
+    _prompts._load_grammar_for_policy = _load_grammar_for_policy
+    _prompts._measure_prompt_sections = _measure_prompt_sections
+    _prompts._normalize_grammar_policy = _normalize_grammar_policy
+    _prompts.SUPPORTED_GRAMMAR_POLICIES = SUPPORTED_GRAMMAR_POLICIES
     _prompts.construct_prompt_from_english_to_mingrelian = construct_prompt_from_english_to_mingrelian
     _prompts.construct_prompt_from_georgian_to_mingrelian = construct_prompt_from_georgian_to_mingrelian
     _prompts.construct_prompt_from_mingrelian_to_english = construct_prompt_from_mingrelian_to_english
@@ -163,6 +174,8 @@ def _sync_compat_state() -> None:
     _pipeline.PROMPT_BUILDERS = PROMPT_BUILDERS
     _pipeline._format_exact_candidate_block = _format_exact_candidate_block
     _pipeline._master_lexicon_enabled = _master_lexicon_enabled
+    _pipeline._measure_prompt_sections = _measure_prompt_sections
+    _pipeline._normalize_grammar_policy = _normalize_grammar_policy
     _pipeline.check_exact_match_with_google_translate = check_exact_match_with_google_translate
     _pipeline.collect_exact_match_candidates = collect_exact_match_candidates
     _pipeline.extract_translation = extract_translation
@@ -245,6 +258,11 @@ def _load_grammar_cached(*args, **kwargs):
 def _load_grammar(*args, **kwargs):
     _sync_compat_state()
     return _LOAD_GRAMMAR(*args, **kwargs)
+
+
+def _load_compact_grammar(*args, **kwargs):
+    _sync_compat_state()
+    return _LOAD_COMPACT_GRAMMAR(*args, **kwargs)
 
 
 _load_master_lexicon_rows_cached.cache_clear = _LOAD_MASTER_LEXICON_ROWS_CACHED.cache_clear
@@ -351,6 +369,21 @@ def _construct_translation_prompt(*args, **kwargs):
     return _CONSTRUCT_TRANSLATION_PROMPT(*args, **kwargs)
 
 
+def _normalize_grammar_policy(*args, **kwargs):
+    _sync_compat_state()
+    return _NORMALIZE_GRAMMAR_POLICY(*args, **kwargs)
+
+
+def _load_grammar_for_policy(*args, **kwargs):
+    _sync_compat_state()
+    return _LOAD_GRAMMAR_FOR_POLICY(*args, **kwargs)
+
+
+def _measure_prompt_sections(*args, **kwargs):
+    _sync_compat_state()
+    return _MEASURE_PROMPT_SECTIONS(*args, **kwargs)
+
+
 def _format_exact_candidate_block(*args, **kwargs):
     _sync_compat_state()
     return _FORMAT_EXACT_CANDIDATE_BLOCK(*args, **kwargs)
@@ -397,6 +430,7 @@ __all__ = [
     "LOW_VALUE_LOOKUP_TERMS",
     "MAX_LOOKUP_OUTPUT_CHARS",
     "PROMPT_BUILDERS",
+    "SUPPORTED_GRAMMAR_POLICIES",
     "check_exact_match_simple",
     "check_exact_match_with_google_translate",
     "collect_exact_match_candidates",

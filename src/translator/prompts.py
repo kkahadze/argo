@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Translator package helpers split from src.single_call_translator."""
 
+import os
 import string
-from typing import Callable
+from typing import Callable, Optional
 
-from src.translator.data import _load_grammar
+from src.translator.data import _load_compact_grammar, _load_grammar
 from src.translator.lookup import (
     _build_high_resource_to_mingrelian_dict_entries,
     grep_search_from_english,
@@ -12,6 +13,61 @@ from src.translator.lookup import (
     grep_search_from_mingrelian,
 )
 from src.translator.text_utils import LANG_LABEL
+
+SUPPORTED_GRAMMAR_POLICIES = {"full", "compact", "none"}
+
+
+def _normalize_grammar_policy(grammar_policy: Optional[str] = None) -> str:
+    """Resolve the grammar inclusion policy for prompt construction."""
+    value = (grammar_policy or os.getenv("ARGO_GRAMMAR_POLICY", "full")).strip().lower()
+    if value not in SUPPORTED_GRAMMAR_POLICIES:
+        return "full"
+    return value
+
+
+def _load_grammar_for_policy(grammar_policy: Optional[str] = None) -> str:
+    """Load grammar text according to the selected policy."""
+    policy = _normalize_grammar_policy(grammar_policy)
+    if policy == "none":
+        return ""
+    if policy == "compact":
+        return _load_compact_grammar()
+    return _load_grammar()
+
+
+def _measure_prompt_sections(prompt: str) -> dict[str, object]:
+    """Measure prompt sections so evals can compare prompt strategies."""
+    dict_marker = "Here are some various dictionary entries for word(s) in that phrase:"
+    grammar_marker = "Here is the Mingrelian grammar information:"
+    grammar_end_marker = "That is the end of the grammar information."
+    final_instruction_marker = "Now remember, we are translating the following sentence:"
+
+    dict_entries_chars = 0
+    if dict_marker in prompt:
+        dict_section = prompt.split(dict_marker, 1)[1]
+        end_offsets = [
+            dict_section.find(marker)
+            for marker in (grammar_marker, final_instruction_marker)
+            if marker in dict_section
+        ]
+        if end_offsets:
+            dict_section = dict_section[: min(end_offsets)]
+        dict_entries_chars = len(dict_section.strip())
+
+    grammar_chars = 0
+    if grammar_marker in prompt:
+        grammar_section = prompt.split(grammar_marker, 1)[1]
+        if grammar_end_marker in grammar_section:
+            grammar_section = grammar_section.split(grammar_end_marker, 1)[0]
+        grammar_chars = len(grammar_section.strip())
+
+    return {
+        "prompt_chars": len(prompt),
+        "prompt_characters": len(prompt),
+        "dict_entries_chars": dict_entries_chars,
+        "grammar_chars": grammar_chars,
+        "grammar_included": grammar_chars > 0,
+    }
 
 def _format_exact_candidate_block(
     *,
@@ -171,8 +227,10 @@ def _construct_prompt(
     lookup_fn: Callable[[str], str],
     exact_candidates_block: str = "",
     skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
 ) -> str:
     """Construct a prompt for translation."""
+    resolved_grammar_policy = _normalize_grammar_policy(grammar_policy)
     dict_entries = "" if skip_word_lookups else _build_dict_entries(
         sentence,
         input_lang=input_lang,
@@ -180,10 +238,10 @@ def _construct_prompt(
         lookup_fn=lookup_fn,
     )
 
-    # Only load the massive grammar file if we actually have dictionary entries
-    # Otherwise use simplified prompt (saves ~96K tokens and 40+ seconds!)
+    # Only load grammar when retrieval context exists. The grammar policy selects
+    # full Harris, compact translator notes, or no grammar context.
     if (dict_entries and dict_entries.strip()) or (exact_candidates_block and exact_candidates_block.strip()):
-        grammar = _load_grammar()
+        grammar = _load_grammar_for_policy(resolved_grammar_policy)
     else:
         grammar = ""
 
@@ -202,6 +260,7 @@ def construct_prompt_from_mingrelian_to_english(
     *,
     exact_candidates_block: str = "",
     skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
 ) -> str:
     """Construct prompt for Mingrelian → English translation."""
     return _construct_prompt(
@@ -211,6 +270,7 @@ def construct_prompt_from_mingrelian_to_english(
         lookup_fn=grep_search_from_mingrelian,
         exact_candidates_block=exact_candidates_block,
         skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
     )
 
 
@@ -219,6 +279,7 @@ def construct_prompt_from_english_to_mingrelian(
     *,
     exact_candidates_block: str = "",
     skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
 ) -> str:
     """Construct prompt for English → Mingrelian translation."""
     return _construct_prompt(
@@ -228,6 +289,7 @@ def construct_prompt_from_english_to_mingrelian(
         lookup_fn=grep_search_from_english,
         exact_candidates_block=exact_candidates_block,
         skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
     )
 
 
@@ -236,6 +298,7 @@ def construct_prompt_from_georgian_to_mingrelian(
     *,
     exact_candidates_block: str = "",
     skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
 ) -> str:
     """Construct prompt for Georgian → Mingrelian translation."""
     return _construct_prompt(
@@ -245,6 +308,7 @@ def construct_prompt_from_georgian_to_mingrelian(
         lookup_fn=grep_search_from_georgian,
         exact_candidates_block=exact_candidates_block,
         skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
     )
 
 
@@ -253,6 +317,7 @@ def construct_prompt_from_mingrelian_to_georgian(
     *,
     exact_candidates_block: str = "",
     skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
 ) -> str:
     """Construct prompt for Mingrelian → Georgian translation."""
     return _construct_prompt(
@@ -262,6 +327,7 @@ def construct_prompt_from_mingrelian_to_georgian(
         lookup_fn=grep_search_from_mingrelian,
         exact_candidates_block=exact_candidates_block,
         skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
     )
 
 

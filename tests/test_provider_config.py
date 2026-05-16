@@ -267,18 +267,28 @@ class ProviderConfigTests(unittest.TestCase):
         captured = {}
 
         class FakeLLMClient:
-            def __init__(self, provider, api_key, model, temperature, max_tokens):
+            def __init__(
+                self,
+                provider,
+                api_key,
+                model,
+                temperature,
+                max_tokens,
+                reasoning_effort=None,
+            ):
                 captured["provider"] = provider
                 captured["api_key"] = api_key
                 captured["model"] = model
                 captured["temperature"] = temperature
                 captured["max_tokens"] = max_tokens
+                captured["reasoning_effort"] = reasoning_effort
                 self.model = model
 
-        def fake_translate(input_text, source_lang, target_lang, llm_client):
+        def fake_translate(input_text, source_lang, target_lang, llm_client, grammar_policy=None):
             captured["input_text"] = input_text
             captured["source_language"] = source_lang
             captured["target_language"] = target_lang
+            captured["grammar_policy"] = grammar_policy
             return {
                 "translation": "ok",
                 "full_response": "full",
@@ -307,6 +317,8 @@ class ProviderConfigTests(unittest.TestCase):
             captured["target_language"],
             provider_config.DEFAULT_TARGET_LANGUAGE,
         )
+        self.assertIsNone(captured["reasoning_effort"])
+        self.assertIsNone(captured["grammar_policy"])
 
 
 if __name__ == "__main__":

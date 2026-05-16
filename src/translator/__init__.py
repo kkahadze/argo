@@ -18,6 +18,7 @@ from src.translator.lookup import (
 from src.translator.pipeline import translate
 from src.translator.prompts import (
     PROMPT_BUILDERS,
+    SUPPORTED_GRAMMAR_POLICIES,
     construct_prompt_from_english_to_mingrelian,
     construct_prompt_from_georgian_to_mingrelian,
     construct_prompt_from_mingrelian_to_english,

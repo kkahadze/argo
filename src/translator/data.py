@@ -230,3 +230,19 @@ def _load_grammar(path: Optional[str] = None) -> str:
         return _load_grammar_cached(path, mtime_ns)
     except FileNotFoundError:
         return ""
+
+
+def _load_compact_grammar(path: Optional[str] = None) -> str:
+    """Load the compact translator-oriented grammar reference."""
+    if path is None:
+        path, mtime_ns = _data_file_cache_key("harris_compact.txt")
+    else:
+        try:
+            mtime_ns = Path(path).stat().st_mtime_ns
+        except FileNotFoundError:
+            return ""
+
+    try:
+        return _load_grammar_cached(path, mtime_ns)
+    except FileNotFoundError:
+        return ""

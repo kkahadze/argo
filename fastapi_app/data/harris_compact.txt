@@ -1,0 +1,85 @@
+Mingrelian translator grammar compact reference
+
+Use this as concise grammar guidance, not as lexicon evidence. Prefer exact
+dictionary matches and parallel examples over any general rule below.
+
+Writing and dialect
+- Mingrelian is often written in Georgian Mkhedruli script. Do not assume a
+  Mkhedruli string is Georgian; use the declared source language.
+- Z-S often has ჷ, final -s may surface as -c after consonants, and plural -ep
+  may surface as -em before narrative/dative. Senak often has -en.
+
+Nouns and cases
+- Base/nominative for consonant stems often ends in -i. After vowel-final stems,
+  initial i of case suffixes drops.
+- Cases: nominative -i/base, narrative -k, dative -s, genitive -iš/-š,
+  allative -iša/-ša, ablative -iše/-še, instrumental -it/-t, designative
+  -išo(t)/-šo(t), adverbial -o(t)/-t.
+- Dative may be -c in Z-S after consonants. Genitive -š can weaken/delete.
+- Emphatic vowels -i, -ჷ/-ə, -u may follow narrative, dative, genitive, and
+  instrumental markers. Strip these cautiously when recognizing stems.
+- Plural marker is -ep after the root; before narrative/dative it often becomes
+  -en or -em. Root-final a may delete before plural.
+
+Pronouns and demonstratives
+- Personal pronouns: ma "I", si "you sg", mu "he/she/it"; čki "we", tkva
+  "you pl", munepi "they".
+- Genitive/possessive forms: čkimi "my", skani "your sg", muš "his/her/its",
+  čkini "our", tkvani "your pl", munepiši "their".
+- Demonstratives: tena/e/te "this"; tina/i/ti "that". They can act like
+  third-person pronouns: "that one", "he/she/it", or contextual pronouns.
+- Interrogatives: mi(n) "who", mu(y) "what", namu "which"; oblique forms add
+  the regular case suffixes. Indefinites/negatives often build on these roots.
+
+Noun phrase syntax
+- Modifiers usually precede the noun and remain in base form. Following
+  modifiers are declined and may agree in case/number.
+- Genitive possessors/material/part-whole modifiers usually precede the head.
+- Quantified nouns are commonly singular. Conjoined NPs use do "and"; the last
+  conjunct must carry case.
+
+Verb overview
+- Mingrelian verbs encode person/number agreement, tense/aspect/mood
+  ("screeves"), preverbs, and sometimes inversion. Nominal arguments may be
+  omitted when recoverable from context, so translate pronouns from verb
+  agreement only when needed in English/Georgian.
+- Four broad classes: Class 1 transitive active; Class 2 intransitive inactive;
+  Class 3 intransitive active; Class 4 stative/affective, often perception,
+  feeling, possession, wanting, knowing.
+- Present stems: Classes 1/3 usually consonant-final and take 3sg -s, 3pl -an.
+  Classes 2/4 usually vowel-final and take 3sg -n, 3pl -nan. Word-final n often
+  deletes unless followed by enclitic/suffix.
+- Subject markers: 1sg often v-/b-/p-/p' by following sound; 2sg g-/r-/zero;
+  1/2 plural use plural -t. Third person often has no prefix and uses suffixes.
+- Object markers: 1st object m-/b-/p-/p'; 2nd object g-/r-/zero. Direct and
+  indirect object markers are formally similar.
+
+Preverbs, aspect, and polarity
+- Verb prefix slots can include status/affirmative ko-, negative va-, direction
+  and local preverbs, imperfectivizer, person marker, and preradical vowel.
+- Common perfectivizing/future preverbs include še/ši, do/da/de/di, o, ga/go/ge,
+  mi, mo, e, i. They may also add direction or lexical nuance.
+- Simple preverbs include a-, o-, e-, ga-, go-, ge-, da-, do-, წა-, me-, mo-,
+  še-. Complex/local elements include no-, to-, la-, ša-, c'o-, k'o-, da-.
+- ko- is affirmative/perfective-supporting. va- negates finite verbs; negative
+  pronouns are often based on mi-/mu- plus negative material.
+- Vowels in stacked prefixes may delete; adjacent vowels may merge. A stripped
+  form may hide an underlying preverb/person/preradical vowel sequence.
+
+Screeves and case alignment
+- Series I includes present/imperfect/subjunctive/conditionals and future-like
+  forms. Series II is aorist-like. Series III/IV are evidential/perfect-like.
+- Basic argument case pattern: in Series II, transitive final subjects take
+  narrative -k and direct objects take nominative/base. In other series,
+  subjects take nominative/base and direct/indirect objects often take dative.
+- Inversion: Class 1/3 invert in Series III; Class 4 often invert in all series.
+  The notional subject may appear as a dative/indirect object and control object
+  agreement. Translate by semantic roles, not only surface case.
+
+Translation heuristics
+- For English/Georgian output, supply natural pronouns and tense even when
+  Mingrelian omits arguments.
+- For Mingrelian output, prefer plain translation over gloss lists. Preserve
+  names and numbers. If dictionary evidence offers several senses, choose the
+  sense fitting the full sentence and parallel examples.
+- Treat figurative/secondary senses as lower priority unless context calls for them.
