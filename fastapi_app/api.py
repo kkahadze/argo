@@ -18,7 +18,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.llm_client import LLMClient
 from src.provider_config import (
     DEFAULT_PROVIDER,
-    SERVER_KEY_MODELS,
+    DEFAULT_SOURCE_LANGUAGE,
+    DEFAULT_TARGET_LANGUAGE,
     SUPPORTED_PROVIDERS,
     VALID_LANGUAGES,
     get_api_key_env_var,
@@ -42,8 +43,8 @@ import re
 class PromptIn(BaseModel):
     prompt: str
     api_key: Optional[str] = None  # Optional: if None, server will use the configured key for the selected provider
-    source_language: str = "mingrelian"  # Source language: "mingrelian", "georgian", or "english"
-    target_language: str = "english"  # Target language: "mingrelian", "georgian", or "english"
+    source_language: str = DEFAULT_SOURCE_LANGUAGE  # Source language: "mingrelian", "georgian", or "english"
+    target_language: str = DEFAULT_TARGET_LANGUAGE  # Target language: "mingrelian", "georgian", or "english"
     provider: Optional[str] = None  # "openai", "anthropic", or "gemini" (if None, reads from env)
     model: Optional[str] = None  # Optional: specify model name (if None, reads from env)
 
@@ -148,8 +149,8 @@ def format_output_for_legacy(result, source_lang, target_lang, source_text):
 async def stream_translation(
     prompt_text,
     api_key,
-    source_language="mingrelian",
-    target_language="english",
+    source_language=DEFAULT_SOURCE_LANGUAGE,
+    target_language=DEFAULT_TARGET_LANGUAGE,
     provider=None,
     model=None,
     *,

@@ -86,8 +86,8 @@ The API will be available at `http://localhost:8000`
 **Parameters:**
 - `prompt` (string, required): Text to translate
 - `api_key` (string, optional): API key for the LLM provider (if omitted, the backend uses the configured server-side key for the selected provider)
-- `source_language` (string, optional): Source language - "mingrelian", "georgian", or "english" (default: "mingrelian")
-- `target_language` (string, optional): Target language - "mingrelian", "georgian", or "english" (default: "english")
+- `source_language` (string, optional): Source language - "mingrelian", "georgian", or "english" (default: "mingrelian" from `src/provider_config.py`)
+- `target_language` (string, optional): Target language - "mingrelian", "georgian", or "english" (default: "english" from `src/provider_config.py`)
 - `provider` (string, optional): LLM provider - "openai", "anthropic", or "gemini" (reads from env if not specified)
 - `model` (string, optional): Model name (reads from env if not specified, then uses provider default)
 
@@ -113,7 +113,7 @@ The endpoint streams server-sent events. The final event payload looks like:
 
 ## Supported Models
 
-Provider names, language names, provider defaults, and the server-side-key model allowlist are defined in `src/provider_config.py`. User-provided API keys may still request other provider-supported model names.
+Provider names, language names/defaults, provider model defaults, provider API key environment variables, and the server-side-key model allowlist are defined in `src/provider_config.py`. User-provided API keys may still request other provider-supported model names.
 
 ### OpenAI
 - `gpt-5.4-nano` (default)
@@ -277,6 +277,8 @@ argo/
 
 ## Development
 
+Promptfoo evaluations use `eval/provider.py`. If an eval config specifies a provider but omits `model`, the provider uses that provider's default model from `src/provider_config.py`; if the provider is also omitted, the eval-specific default provider remains Gemini.
+
 ### Running Tests
 
 For a quick verification pass:
@@ -316,7 +318,7 @@ This backend is designed to be deployed on platforms like Render, Heroku, or Rai
 When contributing:
 
 1. Keep all LLM calls centralized in `src/llm_client.py`
-2. Keep provider, model, language defaults, and server-key allowlists centralized in `src/provider_config.py`
+2. Keep provider, model, language defaults, API key environment variable names, and server-key allowlists centralized in `src/provider_config.py`
 3. Add comprehensive logging for debugging
 4. Update dictionary data in `fastapi_app/data/` as needed
 5. Test with multiple LLM providers

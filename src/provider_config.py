@@ -19,6 +19,9 @@ VALID_LANGUAGES: Final[tuple[str, ...]] = (
     "english",
 )
 
+DEFAULT_SOURCE_LANGUAGE: Final[str] = "mingrelian"
+DEFAULT_TARGET_LANGUAGE: Final[str] = "english"
+
 DEFAULT_MODEL_BY_PROVIDER: Final[dict[LLMProvider, str]] = {
     "openai": "gpt-5.4-nano",
     "anthropic": "claude-sonnet-4-5-20250929",

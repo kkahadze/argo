@@ -11,6 +11,7 @@ from src.provider_config import (
     DEFAULT_PROVIDER,
     LLMProvider,
     SUPPORTED_PROVIDERS,
+    get_api_key_env_var,
     get_default_model_for_provider,
 )
 
@@ -53,22 +54,23 @@ class LLMClient:
                 f"Unsupported provider: {provider}. Use {supported}."
             )
         self.model = model or os.getenv("LLM_MODEL") or default_model
+        api_key_env_var = get_api_key_env_var(provider)
+        provider_api_key = os.getenv(api_key_env_var) if api_key_env_var else None
+        self.api_key = api_key or provider_api_key
         
         # Set up provider-specific configuration
         if provider == "openai":
             import openai
-            self.api_key = api_key or os.getenv("OPENAI_API_KEY")
             
             if not self.api_key:
-                raise ValueError("OpenAI API key not found. Set OPENAI_API_KEY in .env or pass api_key parameter.")
+                raise ValueError(f"OpenAI API key not found. Set {api_key_env_var} in .env or pass api_key parameter.")
             
         elif provider == "anthropic":
             try:
                 import anthropic
-                self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
                 
                 if not self.api_key:
-                    raise ValueError("Anthropic API key not found. Set ANTHROPIC_API_KEY in .env or pass api_key parameter.")
+                    raise ValueError(f"Anthropic API key not found. Set {api_key_env_var} in .env or pass api_key parameter.")
                 
                 self.client = anthropic.Anthropic(api_key=self.api_key)
                 
@@ -80,10 +82,9 @@ class LLMClient:
         elif provider == "gemini":
             try:
                 from google import genai
-                self.api_key = api_key or os.getenv("GEMINI_API_KEY")
                 
                 if not self.api_key:
-                    raise ValueError("Gemini API key not found. Set GEMINI_API_KEY in .env or pass api_key parameter.")
+                    raise ValueError(f"Gemini API key not found. Set {api_key_env_var} in .env or pass api_key parameter.")
                 
                 # Initialize the new genai client
                 self.genai_client = genai.Client(api_key=self.api_key)
