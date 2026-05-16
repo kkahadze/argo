@@ -7,6 +7,9 @@ from src.translator import extraction, lookup, pipeline, prompts
 
 
 class TranslatorModuleImportSmokeTest(unittest.TestCase):
+    def tearDown(self):
+        legacy_translator._sync_compat_state()
+
     def test_legacy_facade_reexports_main_surface(self):
         expected_callables = [
             "translate",
@@ -74,12 +77,12 @@ class TranslatorModuleImportSmokeTest(unittest.TestCase):
         original_lookup_translator = lookup.GoogleTranslator
         original_pipeline_translator = pipeline.GoogleTranslator
         empty_data_patches = [
-            patch.object(lookup, "_load_sentence_pairs_rows", return_value=[]),
-            patch.object(lookup, "_load_gal_rows", return_value=[]),
-            patch.object(lookup, "_load_kk_rows", return_value=[]),
-            patch.object(lookup, "_load_context_source_entries", return_value=[]),
-            patch.object(lookup, "_load_master_lexicon_rows", return_value=[]),
-            patch.object(prompts, "_load_grammar", return_value=""),
+            patch.object(legacy_translator, "_load_sentence_pairs_rows", return_value=[]),
+            patch.object(legacy_translator, "_load_gal_rows", return_value=[]),
+            patch.object(legacy_translator, "_load_kk_rows", return_value=[]),
+            patch.object(legacy_translator, "_load_context_source_entries", return_value=[]),
+            patch.object(legacy_translator, "_load_master_lexicon_rows", return_value=[]),
+            patch.object(legacy_translator, "_load_grammar", return_value=""),
         ]
 
         try:
@@ -118,6 +121,102 @@ class TranslatorModuleImportSmokeTest(unittest.TestCase):
             legacy_translator.GoogleTranslator = original_facade_translator
             lookup.GoogleTranslator = original_lookup_translator
             pipeline.GoogleTranslator = original_pipeline_translator
+
+    def test_legacy_prompt_builders_observe_facade_lookup_monkeypatch(self):
+        lookup_calls = []
+
+        def patched_lookup(word):
+            lookup_calls.append(word)
+            return f"\npatched facade dictionary entry for {word}\n"
+
+        with (
+            patch.object(legacy_translator, "grep_search_from_mingrelian", side_effect=patched_lookup),
+            patch.object(legacy_translator, "_load_grammar", return_value=""),
+        ):
+            prompt = legacy_translator.construct_prompt_from_mingrelian_to_english("patchedword")
+
+        self.assertEqual(lookup_calls, ["patchedword"])
+        self.assertIn("patched facade dictionary entry for patchedword", prompt)
+
+    def test_legacy_prompt_builder_map_observes_facade_lookup_monkeypatch(self):
+        def patched_lookup(word):
+            return f"\nfacade map dictionary entry for {word}\n"
+
+        with (
+            patch.object(legacy_translator, "grep_search_from_mingrelian", side_effect=patched_lookup),
+            patch.object(legacy_translator, "_load_grammar", return_value=""),
+        ):
+            prompt = legacy_translator.PROMPT_BUILDERS[("mingrelian", "english")]("mapword")
+
+        self.assertIn("facade map dictionary entry for mapword", prompt)
+
+    def test_legacy_translate_observes_facade_exact_match_monkeypatch(self):
+        class FailingClient:
+            provider = "test"
+            model = "test"
+
+            def complete(self, prompt):
+                raise AssertionError("translate should return before the LLM call")
+
+        def patched_candidates(input_text, source_lang, target_lang):
+            self.assertEqual((input_text, source_lang, target_lang), ("hello", "english", "mingrelian"))
+            return [{"source_name": "test", "target_text": "patched exact"}]
+
+        with patch.object(legacy_translator, "collect_exact_match_candidates", side_effect=patched_candidates):
+            result = legacy_translator.translate("hello", "english", "mingrelian", FailingClient())
+
+        self.assertEqual(result["translation"], "patched exact")
+        self.assertEqual(result["response_source"], "exact_lexicon")
+
+    def test_legacy_translate_observes_facade_google_exact_monkeypatch(self):
+        class FailingClient:
+            provider = "test"
+            model = "test"
+
+            def complete(self, prompt):
+                raise AssertionError("translate should return before the LLM call")
+
+        with (
+            patch.object(legacy_translator, "GoogleTranslator", None),
+            patch.object(legacy_translator, "collect_exact_match_candidates", return_value=[]),
+            patch.object(
+                legacy_translator,
+                "check_exact_match_with_google_translate",
+                return_value="patched bridge exact",
+            ),
+        ):
+            result = legacy_translator.translate("hello", "english", "mingrelian", FailingClient())
+
+        self.assertEqual(result["translation"], "patched bridge exact")
+        self.assertEqual(result["response_source"], "dictionary_google_bridge")
+
+    def test_legacy_translate_observes_facade_prompt_builder_map_monkeypatch(self):
+        class RecordingClient:
+            provider = "test"
+            model = "test"
+
+            def __init__(self):
+                self.prompt = None
+
+            def complete(self, prompt):
+                self.prompt = prompt
+                return "notes\n<<<TRANSLATION>>>\npatched final\n<<<END_TRANSLATION>>>"
+
+        client = RecordingClient()
+        prompt_builders = {
+            ("mingrelian", "english"): lambda sentence, **kwargs: f"patched prompt for {sentence}"
+        }
+
+        with (
+            patch.object(legacy_translator, "GoogleTranslator", None),
+            patch.object(legacy_translator, "collect_exact_match_candidates", return_value=[]),
+            patch.object(legacy_translator, "check_exact_match_with_google_translate", return_value=None),
+            patch.object(legacy_translator, "PROMPT_BUILDERS", prompt_builders),
+        ):
+            result = legacy_translator.translate("word", "mingrelian", "english", client)
+
+        self.assertEqual(client.prompt, "patched prompt for word")
+        self.assertEqual(result["translation"], "patched final")
 
 
 if __name__ == "__main__":

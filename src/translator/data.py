@@ -8,6 +8,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from src.translator.text_utils import _normalize_lookup_value
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -58,6 +60,17 @@ def _data_file_cache_key(filename: str) -> tuple[str, Optional[int]]:
     return file_path, mtime_ns
 
 
+def _is_header_row(parts: list[str], expected_header: tuple[str, ...]) -> bool:
+    """Return True when a TSV row exactly matches the expected header cells."""
+    if len(parts) < len(expected_header):
+        return False
+    normalized_parts = tuple(
+        _normalize_lookup_value(part).lstrip("\ufeff")
+        for part in parts[:len(expected_header)]
+    )
+    return normalized_parts == expected_header
+
+
 @lru_cache(maxsize=4)
 def _load_master_lexicon_rows_cached(
     file_path: str,
@@ -100,6 +113,8 @@ def _load_sentence_pairs_rows_cached(
     with open(file_path, "r", encoding="utf-8") as file:
         for line in file:
             parts = line.rstrip("\n").split("\t")
+            if _is_header_row(parts, ("mingrelian", "english")):
+                continue
             if len(parts) < 2:
                 continue
             mingrelian = parts[0].strip()
@@ -124,9 +139,11 @@ def _load_gal_rows_cached(
         return ()
 
     rows = []
-    with open(file_path, "r", encoding="utf-8") as file:
-        for line in file:
-            parts = line.rstrip("\n").split("\t")
+    with open(file_path, "r", encoding="utf-8", newline="") as file:
+        reader = csv.reader(file, delimiter="\t")
+        for parts in reader:
+            if _is_header_row(parts, ("russian", "mingrelian")):
+                continue
             if len(parts) < 2:
                 continue
             russian = parts[0].strip()
@@ -151,9 +168,11 @@ def _load_kk_rows_cached(
         return ()
 
     rows = []
-    with open(file_path, "r", encoding="utf-8") as file:
-        for line in file:
-            parts = line.rstrip("\n").split("\t")
+    with open(file_path, "r", encoding="utf-8", newline="") as file:
+        reader = csv.reader(file, delimiter="\t")
+        for parts in reader:
+            if _is_header_row(parts, ("word", "ipa", "russian_def", "georgian_def")):
+                continue
             if len(parts) < 4:
                 continue
             mingrelian = parts[0].strip()
