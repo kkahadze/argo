@@ -90,6 +90,43 @@ class DictionaryLoaderHeaderTests(unittest.TestCase):
         self.assertEqual(output, "")
         self.assertFalse(has_standalone)
 
+    def test_sentence_pairs_loader_excludes_header_from_rows_and_lookups(self) -> None:
+        (self.data_dir / "sentence_pairs.tsv").write_text(
+            "Mingrelian\tEnglish\n"
+            "გომორძგუა\tHello\n",
+            encoding="utf-8",
+        )
+        self._clear_loader_caches()
+
+        self.assertEqual(
+            translator._load_sentence_pairs_rows(),
+            (("გომორძგუა", "Hello"),),
+        )
+
+        self.assertIsNone(
+            translator.check_exact_match_simple("Mingrelian", "mingrelian", "english")
+        )
+        self.assertIsNone(
+            translator.check_exact_match_simple("English", "english", "mingrelian")
+        )
+        self.assertEqual(
+            translator.check_exact_match_simple("გომორძგუა", "mingrelian", "english"),
+            "Hello",
+        )
+        self.assertEqual(
+            translator.collect_exact_match_candidates("Mingrelian", "mingrelian", "english"),
+            [],
+        )
+        self.assertEqual(
+            translator.collect_exact_match_candidates("English", "english", "mingrelian"),
+            [],
+        )
+
+        for header_cell in ("Mingrelian", "English"):
+            output, has_standalone = translator.grep_search_pairs(header_cell)
+            self.assertEqual(output, "")
+            self.assertFalse(has_standalone)
+
 
 if __name__ == "__main__":
     unittest.main()

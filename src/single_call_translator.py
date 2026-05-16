@@ -238,6 +238,8 @@ def _load_sentence_pairs_rows_cached(
     with open(file_path, "r", encoding="utf-8") as file:
         for line in file:
             parts = line.rstrip("\n").split("\t")
+            if _is_header_row(parts, ("mingrelian", "english")):
+                continue
             if len(parts) < 2:
                 continue
             mingrelian = parts[0].strip()
