@@ -53,7 +53,9 @@ class DictionaryStoreTests(unittest.TestCase):
             "english\tmingrelian\twhat language is this\tმუ ნინა რე თენა?\n"
             "english\tmingrelian\thow are you\tმუჭო რექჷ?\n"
             "georgian\tmingrelian\tგამარჯობა\tგომორძგუა\n"
-            "georgian\tmingrelian\tმიყვარხარ\tმიჸორქ\n",
+            "georgian\tmingrelian\tმიყვარხარ\tმიჸორქ\n"
+            "georgian\tmingrelian\tხილვა\tხილუა\n"
+            "mingrelian\tgeorgian\tჯგიტი\tჭიანჭველა\n",
             encoding="utf-8",
         )
         (self.data_dir / "context_source.txt").write_text("", encoding="utf-8")
@@ -107,6 +109,14 @@ class DictionaryStoreTests(unittest.TestCase):
         self.assertEqual(
             check_exact_match_simple("მიყვარხარ", "georgian", "mingrelian"),
             "მიჸორქ",
+        )
+        self.assertEqual(
+            check_exact_match_simple("ხილვა", "georgian", "mingrelian"),
+            "ხილუა",
+        )
+        self.assertEqual(
+            check_exact_match_simple("ჯგიტი", "mingrelian", "georgian"),
+            "ჭიანჭველა",
         )
 
         candidates = collect_exact_match_candidates("ეკლესია", "georgian", "mingrelian")
