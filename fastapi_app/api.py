@@ -26,6 +26,7 @@ from src.provider_config import (
     get_default_model_for_provider,
     get_default_reasoning_effort_for_model,
     is_server_key_model_allowed,
+    normalize_model_for_provider,
 )
 from src.single_call_translator import translate as single_call_translate
 from src.logger import (
@@ -249,6 +250,7 @@ async def stream_translation(
         provider = os.getenv("LLM_PROVIDER", DEFAULT_PROVIDER)
     if model is None:
         model = os.getenv("LLM_MODEL") or get_default_model_for_provider(provider)
+    model = normalize_model_for_provider(provider, model)
     if reasoning_effort is None:
         reasoning_effort = get_default_reasoning_effort_for_model(model)
     
@@ -414,6 +416,7 @@ async def chat(data: PromptIn, request: Request):
     env_provider = os.getenv("LLM_PROVIDER", DEFAULT_PROVIDER)
     env_model = os.getenv("LLM_MODEL") if provider == env_provider else None
     model = data.model or env_model or get_default_model_for_provider(provider)
+    model = normalize_model_for_provider(provider, model)
     reasoning_effort = data.reasoning_effort or get_default_reasoning_effort_for_model(model)
     
     # Validate language parameters

@@ -6,7 +6,7 @@ providers:
     label: "Gemini Flash"
     config:
       provider: gemini
-      model: gemini-3.1-flash-lite-preview
+      model: gemini-3.1-flash-lite
       source_language: mingrelian
       target_language: english
       temperature: 0.7

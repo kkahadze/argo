@@ -25,12 +25,18 @@ DEFAULT_TARGET_LANGUAGE: Final[str] = "english"
 DEFAULT_MODEL_BY_PROVIDER: Final[dict[LLMProvider, str]] = {
     "openai": "gpt-5.5",
     "anthropic": "claude-sonnet-4-5-20250929",
-    "gemini": "gemini-3.1-flash-lite-preview",
+    "gemini": "gemini-3.1-flash-lite",
 }
 
 SERVER_KEY_MODELS: Final[dict[LLMProvider, frozenset[str]]] = {
     "openai": frozenset({"gpt-5.5", "gpt-5.4-nano"}),
-    "gemini": frozenset({"gemini-3.1-flash-lite-preview"}),
+    "gemini": frozenset({"gemini-3.1-flash-lite"}),
+}
+
+MODEL_ALIASES_BY_PROVIDER: Final[dict[LLMProvider, dict[str, str]]] = {
+    "gemini": {
+        "gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite",
+    },
 }
 
 DEFAULT_REASONING_EFFORT_BY_MODEL: Final[dict[str, str]] = {
@@ -61,6 +67,14 @@ def get_api_key_env_var(provider: str) -> Optional[str]:
     return PROVIDER_API_KEY_ENV.get(provider)
 
 
+def normalize_model_for_provider(provider: str, model: Optional[str]) -> Optional[str]:
+    """Map retired provider model ids to their current equivalents."""
+    if model is None:
+        return None
+    return MODEL_ALIASES_BY_PROVIDER.get(provider, {}).get(model, model)
+
+
 def is_server_key_model_allowed(provider: str, model: str) -> bool:
     """Check whether this provider/model pair may use the server-side key."""
-    return model in SERVER_KEY_MODELS.get(provider, frozenset())
+    normalized_model = normalize_model_for_provider(provider, model)
+    return normalized_model in SERVER_KEY_MODELS.get(provider, frozenset())
