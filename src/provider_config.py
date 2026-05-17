@@ -29,7 +29,7 @@ DEFAULT_MODEL_BY_PROVIDER: Final[dict[LLMProvider, str]] = {
 }
 
 SERVER_KEY_MODELS: Final[dict[LLMProvider, frozenset[str]]] = {
-    "openai": frozenset({"gpt-5.5", "gpt-5.4-nano"}),
+    "openai": frozenset({"gpt-5.5", "gpt-5.4-mini", "gpt-5.4-nano"}),
     "gemini": frozenset({"gemini-3.1-flash-lite"}),
 }
 
