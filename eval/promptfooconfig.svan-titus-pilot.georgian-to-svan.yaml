@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "TITUS Svan prose pilot: Georgian to Svan"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.5 reasoning none"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: georgian
+      target_language: svan
+      temperature: 0.2
+      max_tokens: 768
+
+prompts:
+  - "{{georgian}}"
+
+tests: file://datasets/svan-titus-balanced-blocks-pilot.csv
+
+maxConcurrency: 12
+
+defaultTest:
+  assert:
+    - type: llm-rubric
+      provider: openai:gpt-5.5
+      metric: target_language_fidelity
+      threshold: 0.8
+      value: |
+        Check whether the output is actually a Svan translation rather than Georgian, English, or commentary.
+        Accept Mkhedruli-style Svan with reasonable orthographic variation.
+        Source Georgian: {{georgian}}
+        Reference Svan: {{svan}}
+        Length bucket: {{length_bucket}}
+    - type: llm-rubric
+      provider: openai:gpt-5.5
+      metric: semantic_accuracy
+      threshold: 0.8
+      value: |
+        You are grading a Georgian-to-Svan translation from an aligned TITUS prose block.
+        Grade semantic correctness, not literal string match.
+        Pass only if the output preserves the full meaning of the Georgian source and is a natural Svan rendering.
+        Be tolerant of orthographic variation, word-order differences, and light punctuation differences.
+        Fail if important clauses, named entities, numbers, or participant roles are lost or reversed.
+
+        Source Georgian: {{georgian}}
+        Reference Svan: {{svan}}
+        Length bucket: {{length_bucket}}

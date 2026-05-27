@@ -13,7 +13,7 @@ sys.path.insert(0, parent_dir)
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
-load_dotenv(os.path.join(parent_dir, '.env'))
+load_dotenv(os.path.join(parent_dir, '.env'), override=True)
 
 from src.single_call_translator import translate
 from src.llm_client import LLMClient
@@ -47,7 +47,8 @@ def call_api(prompt, options, context):
             - api_key: Optional API key
             - source_language: Source language (default: mingrelian)
             - target_language: Target language (default: english)
-            - temperature: Temperature setting (default: 1.0)
+            - temperature: Temperature setting (default: 1.0 except omitted for
+              higher-effort OpenAI GPT-5 reasoning runs)
             - max_tokens: Max tokens (optional)
             - reasoning_effort: OpenAI reasoning effort for GPT-5 family models (optional)
         context (dict): Additional context from promptfoo
@@ -66,9 +67,21 @@ def call_api(prompt, options, context):
         api_key = runtime_options.get('api_key') or env_api_key
         source_language = runtime_options.get('source_language', DEFAULT_SOURCE_LANGUAGE)
         target_language = runtime_options.get('target_language', DEFAULT_TARGET_LANGUAGE)
-        temperature = runtime_options.get('temperature', 1.0)
         max_tokens = runtime_options.get('max_tokens')
         reasoning_effort = runtime_options.get('reasoning_effort')
+        if 'temperature' in runtime_options:
+            temperature = runtime_options['temperature']
+        elif (
+            provider == 'openai'
+            and model
+            and model.lower().startswith('gpt-5')
+            and reasoning_effort
+            and reasoning_effort != 'none'
+        ):
+            # OpenAI reasoning models do not accept temperature at higher efforts.
+            temperature = None
+        else:
+            temperature = 1.0
         grammar_policy = runtime_options.get('grammar_policy') or os.getenv('ARGO_GRAMMAR_POLICY')
         
         # Initialize LLM client

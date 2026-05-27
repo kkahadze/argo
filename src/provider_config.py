@@ -15,6 +15,8 @@ SUPPORTED_PROVIDERS: Final[tuple[LLMProvider, ...]] = (
 
 VALID_LANGUAGES: Final[tuple[str, ...]] = (
     "mingrelian",
+    "tsova_tush",
+    "svan",
     "georgian",
     "english",
 )

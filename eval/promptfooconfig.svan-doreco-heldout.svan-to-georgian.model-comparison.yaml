@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Clean DoReCo held-out Mkhedruli Svan segments: compare GPT-5.5 reasoning and GPT-5.4 mini"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.5 reasoning none"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: svan
+      target_language: georgian
+      temperature: 0.2
+      max_tokens: 768
+      timeout: 300000
+
+  - id: file://provider.py
+    label: "GPT-5.5 reasoning low"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: low
+      source_language: svan
+      target_language: georgian
+      max_tokens: 8192
+      timeout: 300000
+
+  - id: file://provider.py
+    label: "GPT-5.5 reasoning medium"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: medium
+      source_language: svan
+      target_language: georgian
+      max_tokens: 8192
+      timeout: 300000
+
+  - id: file://provider.py
+    label: "GPT-5.4 mini reasoning none"
+    config:
+      provider: openai
+      model: gpt-5.4-mini
+      reasoning_effort: none
+      source_language: svan
+      target_language: georgian
+      temperature: 0.2
+      max_tokens: 768
+      timeout: 300000
+
+prompts:
+  - "{{svan}}"
+
+tests: file://datasets/svan-doreco-heldout-georgian.csv
+
+maxConcurrency: 3
+
+defaultTest: file://assertions/svan-doreco-georgian-strict.yaml

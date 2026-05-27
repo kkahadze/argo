@@ -33,6 +33,8 @@ _LOAD_SENTENCE_PAIRS_ROWS_CACHED = _data._load_sentence_pairs_rows_cached
 _MASTER_LEXICON_ENABLED = _data._master_lexicon_enabled
 
 _BUILD_HIGH_RESOURCE_TO_MINGRELIAN_DICT_ENTRIES = _lookup._build_high_resource_to_mingrelian_dict_entries
+_BUILD_HIGH_RESOURCE_TO_SVAN_DICT_ENTRIES = _lookup._build_high_resource_to_svan_dict_entries
+_BUILD_HIGH_RESOURCE_TO_TSOVA_TUSH_DICT_ENTRIES = _lookup._build_high_resource_to_tsova_tush_dict_entries
 _COLLECT_MASTER_LEXICON_EXACT_CANDIDATES = _lookup._collect_master_lexicon_exact_candidates
 _COLLECT_SIMPLE_EXACT_MATCH_CANDIDATES = _lookup._collect_simple_exact_match_candidates
 _COLLECT_TOKEN_EXACT_CANDIDATES = _lookup._collect_token_exact_candidates
@@ -40,10 +42,14 @@ _CHECK_EXACT_MATCH_SIMPLE = _lookup.check_exact_match_simple
 _CHECK_EXACT_MATCH_WITH_GOOGLE_TRANSLATE = _lookup.check_exact_match_with_google_translate
 _COLLECT_EXACT_MATCH_CANDIDATES = _lookup.collect_exact_match_candidates
 _FIND_MINGRELIAN_IN_DICTS = _lookup.find_mingrelian_in_dicts
+_FIND_SVAN_IN_DICTS = _lookup.find_svan_in_dicts
+_FIND_TSOVA_TUSH_IN_DICTS = _lookup.find_tsova_tush_in_dicts
 _GREP_SEARCH_CONTEXT_SOURCE = _lookup.grep_search_context_source
 _GREP_SEARCH_FROM_ENGLISH = _lookup.grep_search_from_english
 _GREP_SEARCH_FROM_GEORGIAN = _lookup.grep_search_from_georgian
 _GREP_SEARCH_FROM_MINGRELIAN = _lookup.grep_search_from_mingrelian
+_GREP_SEARCH_FROM_SVAN = _lookup.grep_search_from_svan
+_GREP_SEARCH_FROM_TSOVA_TUSH = _lookup.grep_search_from_tsova_tush
 _GREP_SEARCH_GAL = _lookup.grep_search_gal
 _GREP_SEARCH_KK = _lookup.grep_search_kk
 _GREP_SEARCH_PAIRS = _lookup.grep_search_pairs
@@ -58,6 +64,14 @@ _CONSTRUCT_PROMPT_FROM_ENGLISH_TO_MINGRELIAN = _prompts.construct_prompt_from_en
 _CONSTRUCT_PROMPT_FROM_GEORGIAN_TO_MINGRELIAN = _prompts.construct_prompt_from_georgian_to_mingrelian
 _CONSTRUCT_PROMPT_FROM_MINGRELIAN_TO_ENGLISH = _prompts.construct_prompt_from_mingrelian_to_english
 _CONSTRUCT_PROMPT_FROM_MINGRELIAN_TO_GEORGIAN = _prompts.construct_prompt_from_mingrelian_to_georgian
+_CONSTRUCT_PROMPT_FROM_ENGLISH_TO_TSOVA_TUSH = _prompts.construct_prompt_from_english_to_tsova_tush
+_CONSTRUCT_PROMPT_FROM_ENGLISH_TO_SVAN = _prompts.construct_prompt_from_english_to_svan
+_CONSTRUCT_PROMPT_FROM_GEORGIAN_TO_TSOVA_TUSH = _prompts.construct_prompt_from_georgian_to_tsova_tush
+_CONSTRUCT_PROMPT_FROM_GEORGIAN_TO_SVAN = _prompts.construct_prompt_from_georgian_to_svan
+_CONSTRUCT_PROMPT_FROM_TSOVA_TUSH_TO_ENGLISH = _prompts.construct_prompt_from_tsova_tush_to_english
+_CONSTRUCT_PROMPT_FROM_SVAN_TO_ENGLISH = _prompts.construct_prompt_from_svan_to_english
+_CONSTRUCT_PROMPT_FROM_TSOVA_TUSH_TO_GEORGIAN = _prompts.construct_prompt_from_tsova_tush_to_georgian
+_CONSTRUCT_PROMPT_FROM_SVAN_TO_GEORGIAN = _prompts.construct_prompt_from_svan_to_georgian
 _FORMAT_EXACT_CANDIDATE_BLOCK = _prompts._format_exact_candidate_block
 
 _EXTRACT_TRANSLATION = _extraction.extract_translation
@@ -150,10 +164,14 @@ def _sync_compat_state() -> None:
     _lookup.check_exact_match_with_google_translate = check_exact_match_with_google_translate
     _lookup.collect_exact_match_candidates = collect_exact_match_candidates
     _lookup.find_mingrelian_in_dicts = find_mingrelian_in_dicts
+    _lookup.find_svan_in_dicts = find_svan_in_dicts
+    _lookup.find_tsova_tush_in_dicts = find_tsova_tush_in_dicts
     _lookup.grep_search_context_source = grep_search_context_source
     _lookup.grep_search_from_english = grep_search_from_english
     _lookup.grep_search_from_georgian = grep_search_from_georgian
     _lookup.grep_search_from_mingrelian = grep_search_from_mingrelian
+    _lookup.grep_search_from_svan = grep_search_from_svan
+    _lookup.grep_search_from_tsova_tush = grep_search_from_tsova_tush
     _lookup.grep_search_gal = grep_search_gal
     _lookup.grep_search_kk = grep_search_kk
     _lookup.grep_search_pairs = grep_search_pairs
@@ -163,6 +181,8 @@ def _sync_compat_state() -> None:
     _prompts.PROMPT_BUILDERS = PROMPT_BUILDERS
     _prompts._build_dict_entries = _build_dict_entries
     _prompts._build_high_resource_to_mingrelian_dict_entries = _build_high_resource_to_mingrelian_dict_entries
+    _prompts._build_high_resource_to_svan_dict_entries = _build_high_resource_to_svan_dict_entries
+    _prompts._build_high_resource_to_tsova_tush_dict_entries = _build_high_resource_to_tsova_tush_dict_entries
     _prompts._construct_prompt = _construct_prompt
     _prompts._construct_translation_prompt = _construct_translation_prompt
     _prompts._format_exact_candidate_block = _format_exact_candidate_block
@@ -176,6 +196,14 @@ def _sync_compat_state() -> None:
     _prompts.construct_prompt_from_georgian_to_mingrelian = construct_prompt_from_georgian_to_mingrelian
     _prompts.construct_prompt_from_mingrelian_to_english = construct_prompt_from_mingrelian_to_english
     _prompts.construct_prompt_from_mingrelian_to_georgian = construct_prompt_from_mingrelian_to_georgian
+    _prompts.construct_prompt_from_english_to_tsova_tush = construct_prompt_from_english_to_tsova_tush
+    _prompts.construct_prompt_from_english_to_svan = construct_prompt_from_english_to_svan
+    _prompts.construct_prompt_from_georgian_to_tsova_tush = construct_prompt_from_georgian_to_tsova_tush
+    _prompts.construct_prompt_from_georgian_to_svan = construct_prompt_from_georgian_to_svan
+    _prompts.construct_prompt_from_tsova_tush_to_english = construct_prompt_from_tsova_tush_to_english
+    _prompts.construct_prompt_from_svan_to_english = construct_prompt_from_svan_to_english
+    _prompts.construct_prompt_from_tsova_tush_to_georgian = construct_prompt_from_tsova_tush_to_georgian
+    _prompts.construct_prompt_from_svan_to_georgian = construct_prompt_from_svan_to_georgian
     _prompts.grep_search_from_english = grep_search_from_english
     _prompts.grep_search_from_georgian = grep_search_from_georgian
     _prompts.grep_search_from_mingrelian = grep_search_from_mingrelian
@@ -294,6 +322,16 @@ def _build_high_resource_to_mingrelian_dict_entries(*args, **kwargs):
     return _BUILD_HIGH_RESOURCE_TO_MINGRELIAN_DICT_ENTRIES(*args, **kwargs)
 
 
+def _build_high_resource_to_tsova_tush_dict_entries(*args, **kwargs):
+    _sync_compat_state()
+    return _BUILD_HIGH_RESOURCE_TO_TSOVA_TUSH_DICT_ENTRIES(*args, **kwargs)
+
+
+def _build_high_resource_to_svan_dict_entries(*args, **kwargs):
+    _sync_compat_state()
+    return _BUILD_HIGH_RESOURCE_TO_SVAN_DICT_ENTRIES(*args, **kwargs)
+
+
 def _collect_master_lexicon_exact_candidates(*args, **kwargs):
     _sync_compat_state()
     return _COLLECT_MASTER_LEXICON_EXACT_CANDIDATES(*args, **kwargs)
@@ -349,6 +387,16 @@ def grep_search_from_mingrelian(*args, **kwargs):
     return _GREP_SEARCH_FROM_MINGRELIAN(*args, **kwargs)
 
 
+def grep_search_from_tsova_tush(*args, **kwargs):
+    _sync_compat_state()
+    return _GREP_SEARCH_FROM_TSOVA_TUSH(*args, **kwargs)
+
+
+def grep_search_from_svan(*args, **kwargs):
+    _sync_compat_state()
+    return _GREP_SEARCH_FROM_SVAN(*args, **kwargs)
+
+
 def check_exact_match_simple(*args, **kwargs):
     _sync_compat_state()
     return _CHECK_EXACT_MATCH_SIMPLE(*args, **kwargs)
@@ -357,6 +405,16 @@ def check_exact_match_simple(*args, **kwargs):
 def find_mingrelian_in_dicts(*args, **kwargs):
     _sync_compat_state()
     return _FIND_MINGRELIAN_IN_DICTS(*args, **kwargs)
+
+
+def find_tsova_tush_in_dicts(*args, **kwargs):
+    _sync_compat_state()
+    return _FIND_TSOVA_TUSH_IN_DICTS(*args, **kwargs)
+
+
+def find_svan_in_dicts(*args, **kwargs):
+    _sync_compat_state()
+    return _FIND_SVAN_IN_DICTS(*args, **kwargs)
 
 
 def check_exact_match_with_google_translate(*args, **kwargs):
@@ -419,11 +477,59 @@ def construct_prompt_from_mingrelian_to_georgian(*args, **kwargs):
     return _CONSTRUCT_PROMPT_FROM_MINGRELIAN_TO_GEORGIAN(*args, **kwargs)
 
 
+def construct_prompt_from_english_to_tsova_tush(*args, **kwargs):
+    _sync_compat_state()
+    return _CONSTRUCT_PROMPT_FROM_ENGLISH_TO_TSOVA_TUSH(*args, **kwargs)
+
+
+def construct_prompt_from_english_to_svan(*args, **kwargs):
+    _sync_compat_state()
+    return _CONSTRUCT_PROMPT_FROM_ENGLISH_TO_SVAN(*args, **kwargs)
+
+
+def construct_prompt_from_georgian_to_tsova_tush(*args, **kwargs):
+    _sync_compat_state()
+    return _CONSTRUCT_PROMPT_FROM_GEORGIAN_TO_TSOVA_TUSH(*args, **kwargs)
+
+
+def construct_prompt_from_georgian_to_svan(*args, **kwargs):
+    _sync_compat_state()
+    return _CONSTRUCT_PROMPT_FROM_GEORGIAN_TO_SVAN(*args, **kwargs)
+
+
+def construct_prompt_from_tsova_tush_to_english(*args, **kwargs):
+    _sync_compat_state()
+    return _CONSTRUCT_PROMPT_FROM_TSOVA_TUSH_TO_ENGLISH(*args, **kwargs)
+
+
+def construct_prompt_from_svan_to_english(*args, **kwargs):
+    _sync_compat_state()
+    return _CONSTRUCT_PROMPT_FROM_SVAN_TO_ENGLISH(*args, **kwargs)
+
+
+def construct_prompt_from_tsova_tush_to_georgian(*args, **kwargs):
+    _sync_compat_state()
+    return _CONSTRUCT_PROMPT_FROM_TSOVA_TUSH_TO_GEORGIAN(*args, **kwargs)
+
+
+def construct_prompt_from_svan_to_georgian(*args, **kwargs):
+    _sync_compat_state()
+    return _CONSTRUCT_PROMPT_FROM_SVAN_TO_GEORGIAN(*args, **kwargs)
+
+
 PROMPT_BUILDERS = {
     ("mingrelian", "english"): construct_prompt_from_mingrelian_to_english,
     ("english", "mingrelian"): construct_prompt_from_english_to_mingrelian,
     ("mingrelian", "georgian"): construct_prompt_from_mingrelian_to_georgian,
     ("georgian", "mingrelian"): construct_prompt_from_georgian_to_mingrelian,
+    ("tsova_tush", "english"): construct_prompt_from_tsova_tush_to_english,
+    ("english", "tsova_tush"): construct_prompt_from_english_to_tsova_tush,
+    ("tsova_tush", "georgian"): construct_prompt_from_tsova_tush_to_georgian,
+    ("georgian", "tsova_tush"): construct_prompt_from_georgian_to_tsova_tush,
+    ("svan", "english"): construct_prompt_from_svan_to_english,
+    ("english", "svan"): construct_prompt_from_english_to_svan,
+    ("svan", "georgian"): construct_prompt_from_svan_to_georgian,
+    ("georgian", "svan"): construct_prompt_from_georgian_to_svan,
 }
 
 
@@ -448,12 +554,24 @@ __all__ = [
     "construct_prompt_from_georgian_to_mingrelian",
     "construct_prompt_from_mingrelian_to_english",
     "construct_prompt_from_mingrelian_to_georgian",
+    "construct_prompt_from_english_to_tsova_tush",
+    "construct_prompt_from_english_to_svan",
+    "construct_prompt_from_georgian_to_tsova_tush",
+    "construct_prompt_from_georgian_to_svan",
+    "construct_prompt_from_tsova_tush_to_english",
+    "construct_prompt_from_svan_to_english",
+    "construct_prompt_from_tsova_tush_to_georgian",
+    "construct_prompt_from_svan_to_georgian",
     "extract_translation",
     "find_mingrelian_in_dicts",
+    "find_svan_in_dicts",
+    "find_tsova_tush_in_dicts",
     "grep_search_context_source",
     "grep_search_from_english",
     "grep_search_from_georgian",
     "grep_search_from_mingrelian",
+    "grep_search_from_svan",
+    "grep_search_from_tsova_tush",
     "grep_search_gal",
     "grep_search_kk",
     "grep_search_pairs",

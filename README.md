@@ -1,10 +1,12 @@
-# Argo - Mingrelian Translation Backend
+# Argo - Shared Translation Backend
 
-FastAPI backend for the Mingrelian translation application. Provides translation services between Mingrelian, Georgian, and English using LLM-augmented dictionary lookups.
+FastAPI backend for the unified Margo translator. It provides translation
+services for Mingrelian, Tsova-Tush / Bats, and Svan, bridged through Georgian
+and English, using LLM-augmented dictionary lookups.
 
 ## Features
 
-- **Multi-directional Translation**: Translate between any pair of Mingrelian, Georgian, and English
+- **Multi-language Translation**: Translate Mingrelian, Tsova-Tush / Bats, or Svan through Georgian and English
 - **Multiple LLM Providers**: Support for OpenAI (GPT-5.4 family, GPT-5.2), Anthropic (Claude), and Google (Gemini)
 - **Smart Dictionary Lookups**: Standalone word matching with short-circuit optimization
 - **Google Translate Bridge**: Instant translations via high-resource language bridging
@@ -34,7 +36,7 @@ pip install -r fastapi_app/requirements.txt
 The public repository does not include the full dictionary/reference corpora.
 For local full-quality translation, put the private files in `private_data/`
 at the repo root, or set `ARGO_DATA_DIR` to another folder with the same
-filenames:
+language-pack layout:
 
 ```text
 private_data/
@@ -42,14 +44,28 @@ private_data/
 ├── gal.tsv
 ├── kk.tsv
 ├── context_source.txt
-└── harris.txt
+├── harris.txt
+├── tsova_tush/
+│   ├── sentence_pairs.tsv
+│   ├── gal.tsv
+│   ├── kk.tsv
+│   ├── context_source.txt
+│   └── translation_overrides.tsv
+└── svan/
+    ├── sentence_pairs.tsv
+    ├── gal.tsv
+    ├── kk.tsv
+    ├── context_source.txt
+    ├── tuite.txt
+    └── tuite_compact.txt
 ```
 
 Optional private files include `harris_compact.txt`,
 `master-lexicon-mkhedruli.csv`, and local `translation_overrides.tsv`.
 
 `private_data/` is ignored by git, so the code can be public while the corpora
-stay local/private.
+stay local/private. The root files are the historical Mingrelian pack; the
+Tsova-Tush / Bats and Svan packs live in their language-specific subfolders.
 
 ### Share A Complete Private Bundle
 
@@ -132,8 +148,8 @@ The API will be available at `http://localhost:8000`
 **Parameters:**
 - `prompt` (string, required): Text to translate
 - `api_key` (string, optional): API key for the LLM provider (if omitted, the backend uses the configured server-side key for the selected provider)
-- `source_language` (string, optional): Source language - "mingrelian", "georgian", or "english" (default: "mingrelian" from `src/provider_config.py`)
-- `target_language` (string, optional): Target language - "mingrelian", "georgian", or "english" (default: "english" from `src/provider_config.py`)
+- `source_language` (string, optional): Source language - "mingrelian", "tsova_tush", "svan", "georgian", or "english" (default: "mingrelian" from `src/provider_config.py`)
+- `target_language` (string, optional): Target language - "mingrelian", "tsova_tush", "svan", "georgian", or "english" (default: "english" from `src/provider_config.py`)
 - `provider` (string, optional): LLM provider - "openai", "anthropic", or "gemini" (reads from env if not specified)
 - `model` (string, optional): Model name (reads from env if not specified, then uses provider default)
 - `reasoning_effort` (string, optional): OpenAI reasoning effort for GPT-5 family models, such as `"none"` or `"low"`
@@ -147,6 +163,8 @@ The endpoint streams server-sent events. The final event payload looks like:
   "result": {
     "source_text": "მა",
     "target_text": "I",
+    "translated_text": "I",
+    "romanized_text": "",
     "source_language": "mingrelian",
     "target_language": "english",
     "mingrelian_latinized": "",
@@ -199,10 +217,10 @@ User Input
               ↓
 ┌─────────────────────────────────────────┐
 │ 2. Google Translate Bridge              │
-│    TO Mingrelian:                        │
+│    TO low-resource language:             │
 │      - Translate input → Russian/etc     │
 │      - Search dicts for Mingrelian       │
-│    FROM Mingrelian:                      │
+│    FROM low-resource language:           │
 │      - Search for any high-resource lang │
 │      - Google Translate → target lang    │
 │    → If found: INSTANT RETURN (no LLM)  │
@@ -210,7 +228,7 @@ User Input
               ↓
 ┌─────────────────────────────────────────┐
 │ 3. Direct Google Translate              │
-│    Georgian ↔ English (no Mingrelian)   │
+│    Georgian ↔ English only              │
 │    → If applicable: INSTANT RETURN      │
 └─────────────┬───────────────────────────┘
               ↓
@@ -231,14 +249,18 @@ User Input
 Private runtime corpora are loaded from `ARGO_DATA_DIR` when set, then
 `private_data/`, then `fastapi_app/data/` for any public/sample fixtures:
 
-1. **sentence_pairs.tsv** - English-Mingrelian parallel sentences
-2. **gal.tsv** - Russian-Mingrelian dictionary
-3. **kk.tsv** - Mingrelian-Russian-Georgian dictionary (4 columns: word, IPA, Russian, Georgian)
+1. **sentence_pairs.tsv** - English-low-resource parallel sentences
+2. **gal.tsv** - Russian-low-resource dictionary
+3. **kk.tsv** - Low-resource-Russian-Georgian dictionary (4 columns: word, IPA, Russian, Georgian)
 4. **context_source.txt** - Large fallback reference used for LLM context, not extractive lookups
 5. **harris.txt** - Full grammar reference
 6. **harris_compact.txt** - Compact grammar reference for prompt-size experiments
 7. **master-lexicon-mkhedruli.csv** - Optional master lexicon for exact Mingrelian-English candidates
 8. **translation_overrides.tsv** - Small pair-specific exact overrides; public sample overrides may live in `fastapi_app/data/`
+
+The Svan pack uses `tuite.txt` and `tuite_compact.txt` rather than the
+historical Mingrelian `harris*.txt` assets. Its directional prompt policy and
+evaluation evidence are documented in `docs/svan-translation-policy.md`.
 
 ### Optimization Strategies
 

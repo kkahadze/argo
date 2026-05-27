@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Svan baseline rerun: original retrieval with full grammar, held-out Georgian to Mkhedruli Svan, GPT-5.5 reasoning none"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.5 none - original retrieval + full grammar"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: georgian
+      target_language: svan
+      grammar_policy: full
+      temperature: 0.2
+      max_tokens: 768
+
+prompts:
+  - "{{georgian}}"
+
+tests: file://datasets/svan-doreco-heldout-georgian.csv
+
+maxConcurrency: 32
+
+defaultTest:
+  assert:
+    - type: javascript
+      metric: target_language_fidelity
+      value: |
+        const text = (output || '').trim();
+        if (!text) return { pass: false, score: 0, reason: 'Empty output' };
+
+        const mkhedruli = (text.match(/[ა-ჰჱ-ჿ]/g) || []).length;
+        const latin = (text.match(/[A-Za-z]/g) || []).length;
+        const cyrillic = (text.match(/[Ѐ-ӿ]/g) || []).length;
+        const hasCommentary = /(?:translation|translated|answer|final|source|reference)/i.test(text);
+        const pass = mkhedruli >= 1 && latin === 0 && cyrillic === 0 && !hasCommentary;
+
+        return {
+          pass,
+          score: pass ? 1 : 0,
+          reason: pass
+            ? 'Mkhedruli-style Svan output'
+            : `Expected Mkhedruli-style Svan output. mkhedruli=${mkhedruli}, latin=${latin}, cyrillic=${cyrillic}, commentary=${hasCommentary}`,
+        };
+    - type: llm-rubric
+      provider: openai:gpt-5.5
+      metric: semantic_accuracy
+      threshold: 0.8
+      value: |
+        You are grading a held-out DoReCo Georgian-to-Svan translation.
+
+        The source Georgian sentence and aligned DoReCo Svan reference are ground truth.
+        Grade semantic correctness, not literal string match.
+        Pass only if the output is a Svan rendering that preserves the source's main predicate and material content.
+        Be tolerant of Svan orthographic variation, natural word order, inflectional variation, and minor punctuation differences.
+
+        Require:
+        - preservation of core event, statement, or question
+        - preservation of concrete participants, roles, places, objects, quantities, and descriptors that affect meaning
+        - preservation of polarity, conditionals, time relations, and explicit relationships
+        - no substituted object, role, action, place, simile, or property merely because it is topically related
+        - no invented events, meaning reversals, Georgian carry-through, or unrelated content
+
+        Fail if the output is commentary, mostly Georgian, only loosely related to the source, misses the main clause, or copies Georgian in place of Svan.
+        If the output and reference differ on a concrete content word and you cannot justify that difference as the same meaning in Svan, fail it.
+
+        Source Georgian: {{georgian}}
+        Reference Svan: {{svan}}
+        DoReCo reference: {{doreco_ref}}
+        Length bucket: {{length_bucket}}

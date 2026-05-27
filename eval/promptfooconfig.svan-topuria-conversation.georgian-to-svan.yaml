@@ -1,0 +1,88 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "External Topuria conversational holdout: Georgian to Svan with current Tuite runtime grammar"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.5 none - Tuite grammar - Georgian to Svan"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: georgian
+      target_language: svan
+      grammar_policy: full
+      temperature: 0
+      max_tokens: 256
+      timeout: 300000
+
+prompts:
+  - "{{georgian}}"
+
+tests: file://datasets/svan-topuria-conversation-heldout.csv
+
+maxConcurrency: 11
+
+defaultTest:
+  assert:
+    - type: javascript
+      metric: target_language_fidelity
+      value: |
+        const text = String(output || '').trim();
+        if (!text) return { pass: false, score: 0, reason: 'Empty output' };
+
+        const mkhedruli = (text.match(/[ა-ჰჱ-ჿ]/g) || []).length;
+        const latin = (text.match(/\p{Script=Latin}/gu) || []).length;
+        const cyrillic = (text.match(/[Ѐ-ӿ]/g) || []).length;
+        const corrupt = (text.match(/[£¢™ƒ�]/g) || []).length;
+        const hasCommentary = /(?:translation|translated|answer|final|source|reference)/i.test(text);
+        const pass = mkhedruli >= 1 && latin === 0 && cyrillic === 0 && corrupt === 0 && !hasCommentary;
+
+        return {
+          pass,
+          score: pass ? 1 : 0,
+          reason: pass
+            ? 'Mkhedruli-style Svan output without legacy OCR artifacts'
+            : `Expected clean Mkhedruli-style Svan output. mkhedruli=${mkhedruli}, latin=${latin}, cyrillic=${cyrillic}, corrupt=${corrupt}, commentary=${hasCommentary}`,
+        };
+    - type: javascript
+      metric: documented_surface_match
+      value: |
+        const clean = (value) => String(value || '')
+          .normalize('NFC')
+          .replace(/\s+/g, ' ')
+          .replace(/[.!?]+$/u, '')
+          .trim();
+        const actual = clean(output);
+        const references = String(context.vars.svan_variants || context.vars.svan || '')
+          .split('|||')
+          .map(clean)
+          .filter(Boolean);
+        const pass = references.includes(actual);
+        return {
+          pass,
+          score: pass ? 1 : 0,
+          reason: pass
+            ? 'Matches a published Topuria form'
+            : `Not an attested surface form. Expected one of: ${references.join(' | ')}`,
+        };
+    - type: llm-rubric
+      provider: openai:gpt-5.4-mini
+      metric: semantic_accuracy
+      threshold: 0.8
+      value: |
+        Grade a short Georgian-to-Svan conversational translation against an external
+        published Topuria reference that is not loaded into the translation corpus.
+        The Georgian source is the intended meaning. The Svan reference and variants
+        are attested target forms.
+
+        Pass only if the candidate is a clean Svan expression of the same speech act
+        and content: person/number, question versus reply, greeting time of day, and
+        age/name/location meaning must be preserved. Allow documented variants and
+        minor punctuation or orthographic variation. Fail Georgian copying, corrupted
+        glyphs, wrong person/number, or a different greeting/question.
+
+        Source Georgian: {{georgian}}
+        Reference Svan: {{svan}}
+        Published variants: {{svan_variants}}
+        Category: {{category}}
+        Evidence: {{evidence}}

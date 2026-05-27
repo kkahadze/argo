@@ -24,25 +24,91 @@ FIGURATIVE_MARKERS = {
     "ka": ("გადატანილი მნიშვნელობით", "გადატ."),
 }
 
+DEFAULT_PACK_ID = "mingrelian"
+PACK_ID_ALIASES = {
+    "bats": "tsova_tush",
+    "batsbi": "tsova_tush",
+    "tsova-tush": "tsova_tush",
+    "tsova tush": "tsova_tush",
+    "swan": "svan",
+}
+LOW_RESOURCE_LABELS = {
+    "mingrelian": "Mingrelian",
+    "tsova_tush": "Bats",
+    "svan": "Svan",
+}
+LOW_RESOURCE_HEADER_ALIASES = {
+    "mingrelian": ("mingrelian",),
+    "tsova_tush": ("tsova_tush", "tsova-tush", "tsova tush", "bats", "batsbi"),
+    "svan": ("svan", "swan"),
+}
+
+
+def normalize_pack_id(pack_id: str = DEFAULT_PACK_ID) -> str:
+    normalized = (pack_id or DEFAULT_PACK_ID).strip().casefold()
+    normalized = PACK_ID_ALIASES.get(normalized, normalized)
+    return normalized.replace("-", "_").replace(" ", "_")
+
+
+def low_resource_label(pack_id: str) -> str:
+    normalized_pack_id = normalize_pack_id(pack_id)
+    return LOW_RESOURCE_LABELS.get(normalized_pack_id, normalized_pack_id.replace("_", " ").title())
+
 
 @dataclass(frozen=True)
 class SentencePair:
-    mingrelian: str
+    low_resource: str
     english: str
+
+    @property
+    def mingrelian(self) -> str:
+        return self.low_resource
+
+    @property
+    def tsova_tush(self) -> str:
+        return self.low_resource
+
+    @property
+    def svan(self) -> str:
+        return self.low_resource
 
 
 @dataclass(frozen=True)
 class GalEntry:
     russian: str
-    mingrelian: str
+    low_resource: str
+
+    @property
+    def mingrelian(self) -> str:
+        return self.low_resource
+
+    @property
+    def tsova_tush(self) -> str:
+        return self.low_resource
+
+    @property
+    def svan(self) -> str:
+        return self.low_resource
 
 
 @dataclass(frozen=True)
 class KkEntry:
-    mingrelian: str
+    low_resource: str
     ipa: str
     russian: str
     georgian: str
+
+    @property
+    def mingrelian(self) -> str:
+        return self.low_resource
+
+    @property
+    def tsova_tush(self) -> str:
+        return self.low_resource
+
+    @property
+    def svan(self) -> str:
+        return self.low_resource
 
 
 @dataclass(frozen=True)
@@ -59,11 +125,13 @@ class SearchResult:
     has_standalone_matches: bool
 
 
-def get_data_path(filename: str) -> str:
+def get_data_path(filename: str, pack_id: str = DEFAULT_PACK_ID) -> str:
     """Get a data path through the canonical translator data resolver."""
     from src.translator import data as translator_data
 
-    return translator_data._get_data_path(filename)
+    if normalize_pack_id(pack_id) == DEFAULT_PACK_ID:
+        return translator_data._get_data_path(filename)
+    return translator_data._get_data_path(filename, pack_id=pack_id)
 
 
 def normalize_lookup_value(text: str) -> str:
@@ -108,12 +176,18 @@ def split_figurative_gloss(gloss: str, lang_code: str) -> tuple[str, Optional[st
     return primary, secondary or None
 
 
-def format_kk_entry(mingrelian: str, russian: str, georgian: str) -> str:
+def format_kk_entry(
+    low_resource: str,
+    russian: str,
+    georgian: str,
+    *,
+    label: str = "Mingrelian",
+) -> str:
     """Format a kk.tsv entry with figurative senses clearly marked as secondary."""
     ru_primary, ru_figurative = split_figurative_gloss(russian, "ru")
     ka_primary, ka_figurative = split_figurative_gloss(georgian, "ka")
 
-    lines = [f"Mingrelian: {mingrelian}"]
+    lines = [f"{label}: {low_resource}"]
     if ru_primary:
         lines.append(f"Russian primary meaning: {ru_primary}")
     if ru_figurative:
@@ -197,14 +271,50 @@ def _compiled_word_pattern(word: str, standalone: bool) -> re.Pattern:
     return re.compile(pattern, re.IGNORECASE)
 
 
-def _data_file_cache_key(filename: str) -> tuple[str, Optional[int]]:
+def _data_file_cache_key(filename: str, pack_id: str = DEFAULT_PACK_ID) -> tuple[str, Optional[int]]:
     """Build a cache key that invalidates when a data file changes on disk."""
-    file_path = get_data_path(filename)
+    if normalize_pack_id(pack_id) == DEFAULT_PACK_ID:
+        file_path = get_data_path(filename)
+    else:
+        file_path = get_data_path(filename, pack_id=pack_id)
     try:
         mtime_ns = Path(file_path).stat().st_mtime_ns
     except FileNotFoundError:
         return file_path, None
     return file_path, mtime_ns
+
+
+def _normalize_header_cell(text: str) -> str:
+    return normalize_lookup_value(text).lstrip("\ufeff").replace("-", "_").replace(" ", "_")
+
+
+def _low_resource_header_aliases(pack_id: str) -> tuple[str, ...]:
+    normalized_pack_id = normalize_pack_id(pack_id)
+    aliases = LOW_RESOURCE_HEADER_ALIASES.get(normalized_pack_id, (normalized_pack_id,))
+    return tuple(_normalize_header_cell(alias) for alias in aliases)
+
+
+def _is_low_resource_header_cell(text: str, pack_id: str) -> bool:
+    return _normalize_header_cell(text) in _low_resource_header_aliases(pack_id)
+
+
+def _is_sentence_pairs_header(parts: list[str], pack_id: str) -> bool:
+    if len(parts) < 2:
+        return False
+    return _is_low_resource_header_cell(parts[0], pack_id) and _normalize_header_cell(parts[1]) == "english"
+
+
+def _is_gal_header(parts: list[str], pack_id: str) -> bool:
+    if len(parts) < 2:
+        return False
+    return _normalize_header_cell(parts[0]) == "russian" and _is_low_resource_header_cell(parts[1], pack_id)
+
+
+def _context_file_cache_key(pack_id: str) -> tuple[str, Optional[int]]:
+    context_key = _data_file_cache_key("context_source.txt", pack_id)
+    if context_key[1] is not None:
+        return context_key
+    return _data_file_cache_key("kajaia_cleaned.txt", pack_id)
 
 
 def _read_tsv_rows(file_path: str, expected_columns: int) -> list[list[str]]:
@@ -221,34 +331,39 @@ def _read_tsv_rows(file_path: str, expected_columns: int) -> list[list[str]]:
     return rows
 
 
-def _load_sentence_pairs(file_path: str, mtime_ns: Optional[int]) -> tuple[SentencePair, ...]:
+def _load_sentence_pairs(
+    file_path: str,
+    mtime_ns: Optional[int],
+    pack_id: str = DEFAULT_PACK_ID,
+) -> tuple[SentencePair, ...]:
     if mtime_ns is None:
         return ()
 
     rows = []
     for parts in _read_tsv_rows(file_path, 2):
-        mingrelian, english = parts[0], parts[1]
-        if (
-            normalize_lookup_value(mingrelian).lstrip("\ufeff") == "mingrelian"
-            and normalize_lookup_value(english) == "english"
-        ):
+        low_resource, english = parts[0], parts[1]
+        if _is_sentence_pairs_header(parts, pack_id):
             continue
-        if mingrelian and english:
-            rows.append(SentencePair(mingrelian=mingrelian, english=english))
+        if low_resource and english:
+            rows.append(SentencePair(low_resource=low_resource, english=english))
     return tuple(rows)
 
 
-def _load_gal_entries(file_path: str, mtime_ns: Optional[int]) -> tuple[GalEntry, ...]:
+def _load_gal_entries(
+    file_path: str,
+    mtime_ns: Optional[int],
+    pack_id: str = DEFAULT_PACK_ID,
+) -> tuple[GalEntry, ...]:
     if mtime_ns is None:
         return ()
 
     rows = []
-    for index, parts in enumerate(_read_tsv_rows(file_path, 2)):
-        russian, mingrelian = parts[0], parts[1]
-        if index == 0 and russian.casefold() == "russian" and mingrelian.casefold() == "mingrelian":
+    for parts in _read_tsv_rows(file_path, 2):
+        russian, low_resource = parts[0], parts[1]
+        if _is_gal_header(parts, pack_id):
             continue
-        if russian and mingrelian:
-            rows.append(GalEntry(russian=russian, mingrelian=mingrelian))
+        if russian and low_resource:
+            rows.append(GalEntry(russian=russian, low_resource=low_resource))
     return tuple(rows)
 
 
@@ -258,19 +373,19 @@ def _load_kk_entries(file_path: str, mtime_ns: Optional[int]) -> tuple[KkEntry, 
 
     rows = []
     for index, parts in enumerate(_read_tsv_rows(file_path, 4)):
-        mingrelian, ipa, russian, georgian = parts[0], parts[1], parts[2], parts[3]
+        low_resource, ipa, russian, georgian = parts[0], parts[1], parts[2], parts[3]
         if (
             index == 0
-            and mingrelian.casefold() == "word"
+            and low_resource.casefold() == "word"
             and ipa.casefold() == "ipa"
             and russian.casefold() == "russian_def"
             and georgian.casefold() == "georgian_def"
         ):
             continue
-        if mingrelian and russian and georgian:
+        if low_resource and (russian or georgian):
             rows.append(
                 KkEntry(
-                    mingrelian=mingrelian,
+                    low_resource=low_resource,
                     ipa=ipa,
                     russian=russian,
                     georgian=georgian,
@@ -383,12 +498,15 @@ class DictionaryStore:
     def __init__(
         self,
         *,
+        pack_id: str,
         translation_overrides: tuple[TranslationOverride, ...],
         sentence_pairs: tuple[SentencePair, ...],
         gal_entries: tuple[GalEntry, ...],
         kk_entries: tuple[KkEntry, ...],
         context_key: tuple[str, Optional[int]],
     ) -> None:
+        self.pack_id = normalize_pack_id(pack_id)
+        self.low_resource_label = low_resource_label(self.pack_id)
         self.translation_overrides = translation_overrides
         self.sentence_pairs = sentence_pairs
         self.gal_entries = gal_entries
@@ -399,22 +517,34 @@ class DictionaryStore:
 
         self._sentence_index = _build_index(
             sentence_pairs,
-            lambda row: (row.mingrelian, row.english),
+            lambda row: (row.low_resource, row.english),
+        )
+        self._sentence_low_resource_index = _build_index(
+            sentence_pairs,
+            lambda row: (row.low_resource,),
         )
         self._gal_index = _build_index(
             gal_entries,
-            lambda row: (row.russian, row.mingrelian),
+            lambda row: (row.russian, row.low_resource),
+        )
+        self._gal_low_resource_index = _build_index(
+            gal_entries,
+            lambda row: (row.low_resource,),
         )
         self._kk_index = _build_index(
             kk_entries,
-            lambda row: (row.mingrelian, row.ipa, row.russian, row.georgian),
+            lambda row: (row.low_resource, row.ipa, row.russian, row.georgian),
+        )
+        self._kk_low_resource_index = _build_index(
+            kk_entries,
+            lambda row: (row.low_resource,),
         )
 
-        self._sentence_mingrelian_exact = _build_exact_index(sentence_pairs, lambda row: (row.mingrelian,))
+        self._sentence_low_resource_exact = _build_exact_index(sentence_pairs, lambda row: (row.low_resource,))
         self._sentence_english_exact = _build_exact_index(sentence_pairs, lambda row: (row.english,))
         self._gal_russian_exact = _build_exact_index(gal_entries, lambda row: (row.russian,))
-        self._gal_mingrelian_exact = _build_exact_index(gal_entries, lambda row: (row.mingrelian,))
-        self._kk_mingrelian_exact = _build_exact_index(kk_entries, lambda row: (row.mingrelian,))
+        self._gal_low_resource_exact = _build_exact_index(gal_entries, lambda row: (row.low_resource,))
+        self._kk_low_resource_exact = _build_exact_index(kk_entries, lambda row: (row.low_resource,))
         self._kk_russian_exact = _build_exact_index(kk_entries, lambda row: (row.russian,))
         self._kk_georgian_exact = _build_exact_index(kk_entries, lambda row: (row.georgian,))
         self._translation_override_exact = _build_translation_override_index(translation_overrides)
@@ -424,8 +554,17 @@ class DictionaryStore:
         self._ensure_context_loaded()
         return self._context_entries or ()
 
+    def exact_sentence_low_resource(self, text: str) -> tuple[SentencePair, ...]:
+        return self._rows_for_exact(self.sentence_pairs, self._sentence_low_resource_exact, text)
+
     def exact_sentence_mingrelian(self, text: str) -> tuple[SentencePair, ...]:
-        return self._rows_for_exact(self.sentence_pairs, self._sentence_mingrelian_exact, text)
+        return self.exact_sentence_low_resource(text)
+
+    def exact_sentence_tsova_tush(self, text: str) -> tuple[SentencePair, ...]:
+        return self.exact_sentence_low_resource(text)
+
+    def exact_sentence_svan(self, text: str) -> tuple[SentencePair, ...]:
+        return self.exact_sentence_low_resource(text)
 
     def exact_sentence_english(self, text: str) -> tuple[SentencePair, ...]:
         return self._rows_for_exact(self.sentence_pairs, self._sentence_english_exact, text)
@@ -433,11 +572,29 @@ class DictionaryStore:
     def exact_gal_russian(self, text: str) -> tuple[GalEntry, ...]:
         return self._rows_for_exact(self.gal_entries, self._gal_russian_exact, text)
 
+    def exact_gal_low_resource(self, text: str) -> tuple[GalEntry, ...]:
+        return self._rows_for_exact(self.gal_entries, self._gal_low_resource_exact, text)
+
     def exact_gal_mingrelian(self, text: str) -> tuple[GalEntry, ...]:
-        return self._rows_for_exact(self.gal_entries, self._gal_mingrelian_exact, text)
+        return self.exact_gal_low_resource(text)
+
+    def exact_gal_tsova_tush(self, text: str) -> tuple[GalEntry, ...]:
+        return self.exact_gal_low_resource(text)
+
+    def exact_gal_svan(self, text: str) -> tuple[GalEntry, ...]:
+        return self.exact_gal_low_resource(text)
+
+    def exact_kk_low_resource(self, text: str) -> tuple[KkEntry, ...]:
+        return self._rows_for_exact(self.kk_entries, self._kk_low_resource_exact, text)
 
     def exact_kk_mingrelian(self, text: str) -> tuple[KkEntry, ...]:
-        return self._rows_for_exact(self.kk_entries, self._kk_mingrelian_exact, text)
+        return self.exact_kk_low_resource(text)
+
+    def exact_kk_tsova_tush(self, text: str) -> tuple[KkEntry, ...]:
+        return self.exact_kk_low_resource(text)
+
+    def exact_kk_svan(self, text: str) -> tuple[KkEntry, ...]:
+        return self.exact_kk_low_resource(text)
 
     def exact_kk_russian(self, text: str) -> tuple[KkEntry, ...]:
         return self._rows_for_exact(self.kk_entries, self._kk_russian_exact, text)
@@ -461,9 +618,21 @@ class DictionaryStore:
             word=word,
             rows=self.sentence_pairs,
             index=self._sentence_index,
-            standalone_text=lambda row: (row.mingrelian, row.english),
-            substring_text=lambda row: f"{row.mingrelian}\t{row.english}",
-            format_entry=lambda row: f"Mingrelian: {row.mingrelian}\nEnglish: {row.english}\n",
+            standalone_text=lambda row: (row.low_resource, row.english),
+            substring_text=lambda row: f"{row.low_resource}\t{row.english}",
+            format_entry=lambda row: f"{self.low_resource_label}: {row.low_resource}\nEnglish: {row.english}\n",
+            standalone_only=standalone_only,
+        )
+
+    @lru_cache(maxsize=4096)
+    def search_sentence_low_resource(self, word: str, *, standalone_only: bool = False) -> SearchResult:
+        return self._search_rows(
+            word=word,
+            rows=self.sentence_pairs,
+            index=self._sentence_low_resource_index,
+            standalone_text=lambda row: (row.low_resource,),
+            substring_text=lambda row: row.low_resource,
+            format_entry=lambda row: f"{self.low_resource_label}: {row.low_resource}\nEnglish: {row.english}\n",
             standalone_only=standalone_only,
         )
 
@@ -473,9 +642,21 @@ class DictionaryStore:
             word=word,
             rows=self.gal_entries,
             index=self._gal_index,
-            standalone_text=lambda row: (row.mingrelian, row.russian),
-            substring_text=lambda row: f"{row.russian}\t{row.mingrelian}",
-            format_entry=lambda row: f"Mingrelian: {row.mingrelian}\nRussian: {row.russian}\n",
+            standalone_text=lambda row: (row.low_resource, row.russian),
+            substring_text=lambda row: f"{row.russian}\t{row.low_resource}",
+            format_entry=lambda row: f"{self.low_resource_label}: {row.low_resource}\nRussian: {row.russian}\n",
+            standalone_only=standalone_only,
+        )
+
+    @lru_cache(maxsize=4096)
+    def search_gal_low_resource(self, word: str, *, standalone_only: bool = False) -> SearchResult:
+        return self._search_rows(
+            word=word,
+            rows=self.gal_entries,
+            index=self._gal_low_resource_index,
+            standalone_text=lambda row: (row.low_resource,),
+            substring_text=lambda row: row.low_resource,
+            format_entry=lambda row: f"{self.low_resource_label}: {row.low_resource}\nRussian: {row.russian}\n",
             standalone_only=standalone_only,
         )
 
@@ -485,9 +666,33 @@ class DictionaryStore:
             word=word,
             rows=self.kk_entries,
             index=self._kk_index,
-            standalone_text=lambda row: (row.mingrelian, row.russian, row.georgian),
-            substring_text=lambda row: "\t".join((row.mingrelian, row.ipa, row.russian, row.georgian)),
-            format_entry=lambda row: format_kk_entry(row.mingrelian, row.russian, row.georgian) + "\n",
+            standalone_text=lambda row: (row.low_resource, row.russian, row.georgian),
+            substring_text=lambda row: "\t".join((row.low_resource, row.ipa, row.russian, row.georgian)),
+            format_entry=lambda row: format_kk_entry(
+                row.low_resource,
+                row.russian,
+                row.georgian,
+                label=self.low_resource_label,
+            )
+            + "\n",
+            standalone_only=standalone_only,
+        )
+
+    @lru_cache(maxsize=4096)
+    def search_kk_low_resource(self, word: str, *, standalone_only: bool = False) -> SearchResult:
+        return self._search_rows(
+            word=word,
+            rows=self.kk_entries,
+            index=self._kk_low_resource_index,
+            standalone_text=lambda row: (row.low_resource,),
+            substring_text=lambda row: row.low_resource,
+            format_entry=lambda row: format_kk_entry(
+                row.low_resource,
+                row.russian,
+                row.georgian,
+                label=self.low_resource_label,
+            )
+            + "\n",
             standalone_only=standalone_only,
         )
 
@@ -564,19 +769,22 @@ class DictionaryStore:
         return SearchResult("", False)
 
 
-def get_dictionary_store() -> DictionaryStore:
+def get_dictionary_store(pack_id: str = DEFAULT_PACK_ID) -> DictionaryStore:
     """Return a cached store, invalidated by source file modification times."""
+    normalized_pack_id = normalize_pack_id(pack_id)
     return _get_dictionary_store_cached(
-        _data_file_cache_key("translation_overrides.tsv"),
-        _data_file_cache_key("sentence_pairs.tsv"),
-        _data_file_cache_key("gal.tsv"),
-        _data_file_cache_key("kk.tsv"),
-        _data_file_cache_key("context_source.txt"),
+        normalized_pack_id,
+        _data_file_cache_key("translation_overrides.tsv", normalized_pack_id),
+        _data_file_cache_key("sentence_pairs.tsv", normalized_pack_id),
+        _data_file_cache_key("gal.tsv", normalized_pack_id),
+        _data_file_cache_key("kk.tsv", normalized_pack_id),
+        _context_file_cache_key(normalized_pack_id),
     )
 
 
 @lru_cache(maxsize=4)
 def _get_dictionary_store_cached(
+    pack_id: str,
     translation_overrides_key: tuple[str, Optional[int]],
     sentence_pairs_key: tuple[str, Optional[int]],
     gal_key: tuple[str, Optional[int]],
@@ -584,9 +792,10 @@ def _get_dictionary_store_cached(
     context_key: tuple[str, Optional[int]],
 ) -> DictionaryStore:
     return DictionaryStore(
+        pack_id=pack_id,
         translation_overrides=_load_translation_overrides(*translation_overrides_key),
-        sentence_pairs=_load_sentence_pairs(*sentence_pairs_key),
-        gal_entries=_load_gal_entries(*gal_key),
+        sentence_pairs=_load_sentence_pairs(*sentence_pairs_key, pack_id),
+        gal_entries=_load_gal_entries(*gal_key, pack_id),
         kk_entries=_load_kk_entries(*kk_key),
         context_key=context_key,
     )

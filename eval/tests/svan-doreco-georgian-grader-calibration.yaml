@@ -1,0 +1,80 @@
+- description: "reject omitted landslide and affected participants"
+  vars:
+    expected_grade: fail
+    svan: "ერე ლადი ოგჲეს მეწყე̄რ ა მჷხა̄რ, და̄ს ხოხალ."
+    georgian: "რომ დღეს წაგვიღებს მეწყერი თუ ხვალ, არავინ იცის."
+    candidate: "არავინ იცის, დღეს რა მოხდება და ხვალ რა."
+    doreco_ref: "calibration-landslide"
+    length_bucket: "calibration"
+
+- description: "reject changed grammatical participant"
+  vars:
+    expected_grade: fail
+    svan: "მა̄ ჯუღუ̂ა̄ნ უფლება კომუნისტარე შიჲსა ლამზჷრთე ემჩედე̄ლხას."
+    georgian: "არ გქონდა უფლება კომუნისტების ხელში სალოცავად წასულიყავი."
+    candidate: "მე კომუნისტების დროს სალოცავში შესვლის უფლება არ მქონდა."
+    doreco_ref: "calibration-person"
+    length_bucket: "calibration"
+
+- description: "reject substituted explicit relationship"
+  vars:
+    expected_grade: fail
+    svan: "მიშგუ̂ი მეზობელ ფეფიკო ლი ამეჩუ̄ნენ, ხოჩა მეზობელ მაყა ფეფიკო, ეჩა მჷჭშხი მანანა ლას."
+    georgian: "ჩემი მეზობელი ფეფიკო არის აქ, კარგი მეზობელი მყავს ფეფიკო, იმისი მეკვლე მანანა იყო."
+    candidate: "ჩემი მეზობელი ფეფიკო აქაურია, კარგი მეზობელი იყო ფეფიკო, მისი მეუღლე მანანა იყო."
+    doreco_ref: "calibration-relationship"
+    length_bucket: "calibration"
+
+- description: "reject omitted left-alone result"
+  vars:
+    expected_grade: fail
+    svan: "ალე ქა ლოხცუ̂ი̄რახ, ალ ზურა̄ლ, ი მინ მაგ ემჩედე̄ლიხ ეში-აშ ი ალე ჩუ̂ემსედ შდა̄შდაუ̂არილ."
+    georgian: "ეს მიუტოვებიათ, ეს ქალი, და თვითონ ყველანი წასულან იქით-აქეთ და ეს დარჩენილა მარტო."
+    candidate: "ეს ქალი გააგდეს, და ისინი ყველანი აქეთ-იქით გაიფანტნენ და ამის შემდეგ დაიშალნენ."
+    doreco_ref: "calibration-result"
+    length_bucket: "calibration"
+
+- description: "reject changed falling event"
+  vars:
+    expected_grade: fail
+    svan: "ეჯკალიბდ ნაშენ ლას ი ჟი ერ ენკა̄ფან, ეშხუ ბეჩ მა̄დ ოხშყად ქა, მეგემ ერ ენკა̄ფი, ამჟი ენკა̄ფან, ჩუ მა̄დ ახუ̂არ."
+    georgian: "ისეთი აშენებული იყო და რომ წაიქცა, ერთი ქვა არ გადმოუვარდა, ხე რომ წაიქცევა, ასე წაიქცა, არ დაინგრა."
+    candidate: "ისე იყო ნაშენი, რომ ზევით რომ კაფავდა, ერთი ბეწვიც არ ჩამოვარდებოდა, რომელ ხესაც კაფავდა, ასე კაფავდა, ძირს არ აგდებდა."
+    doreco_ref: "calibration-event"
+    length_bucket: "calibration"
+
+- description: "reject hazard that drops affected people"
+  vars:
+    expected_grade: fail
+    svan: "ერე ლადი ოგჲეს მეწყე̄რ ა მჷხა̄რ, და̄ს ხოხალ."
+    georgian: "რომ დღეს წაგვიღებს მეწყერი თუ ხვალ, არავინ იცის."
+    candidate: "არავინ იცის, მეწყერი დღეს ჩამოვა თუ ხვალ."
+    doreco_ref: "calibration-hazard-patient"
+    length_bucket: "calibration"
+
+- description: "reject habitual gathering changed to single event"
+  vars:
+    expected_grade: fail
+    svan: "ი ჟი ხუ̂იხუ̂რჲელა̄ლდ ტუ̂იბსე́, ძირითად ეჯი ლოქ ლი ალჲა̈რე სოფელ ი ეშჩუ̄ნე გუ̂ა̄რ სერ ალე, ყრილობა, ათ სექტემბერს."
+    georgian: "და შევგროვდებით ხოლმე ტვიბში, ე, ძირითადად ის არისო ამათი სოფელი და იქ გვაქვს უკვე ეს, ყრილობა, ათ სექტემბერს."
+    candidate: "და ზემოთ, ტვიბში შევიყარეთ; ძირითადად ეს იყო ეს სოფლები და ერთი გვარი, მერე ეს ყრილობა, ათ სექტემბერს."
+    doreco_ref: "calibration-habitual"
+    length_bucket: "calibration"
+
+- description: "accept equivalent restoration paraphrase"
+  vars:
+    expected_grade: pass
+    svan: "ჟ'ოხსყეხ რესტაუ̂რაცია."
+    georgian: "გაუკეთეს რესტავრაცია."
+    candidate: "რესტავრაცია ჩაუტარეს."
+    doreco_ref: "calibration-paraphrase"
+    length_bucket: "calibration"
+
+- description: "accept equivalent word order"
+  vars:
+    expected_grade: pass
+    svan: "უ̂ადაჭკორია ლას ასეული მეთაურ, მეგრელ."
+    georgian: "ვადაჭკორია იყო ასეულის მეთაური, მეგრელი."
+    candidate: "ვადაჭკორია ასეულის მეთაური იყო, მეგრელი."
+    doreco_ref: "calibration-order"
+    length_bucket: "calibration"

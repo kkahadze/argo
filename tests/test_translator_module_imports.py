@@ -18,7 +18,11 @@ class TranslatorModuleImportSmokeTest(unittest.TestCase):
             "extract_translation",
             "collect_exact_match_candidates",
             "grep_search_from_mingrelian",
+            "grep_search_from_tsova_tush",
+            "grep_search_from_svan",
             "construct_prompt_from_mingrelian_to_english",
+            "construct_prompt_from_tsova_tush_to_english",
+            "construct_prompt_from_svan_to_english",
         ]
 
         for name in expected_callables:
@@ -36,11 +40,27 @@ class TranslatorModuleImportSmokeTest(unittest.TestCase):
         self.assertIn(("english", "mingrelian"), prompts.PROMPT_BUILDERS)
         self.assertIn(("mingrelian", "georgian"), prompts.PROMPT_BUILDERS)
         self.assertIn(("georgian", "mingrelian"), prompts.PROMPT_BUILDERS)
+        self.assertIn(("tsova_tush", "english"), prompts.PROMPT_BUILDERS)
+        self.assertIn(("english", "tsova_tush"), prompts.PROMPT_BUILDERS)
+        self.assertIn(("tsova_tush", "georgian"), prompts.PROMPT_BUILDERS)
+        self.assertIn(("georgian", "tsova_tush"), prompts.PROMPT_BUILDERS)
+        self.assertIn(("svan", "english"), prompts.PROMPT_BUILDERS)
+        self.assertIn(("english", "svan"), prompts.PROMPT_BUILDERS)
+        self.assertIn(("svan", "georgian"), prompts.PROMPT_BUILDERS)
+        self.assertIn(("georgian", "svan"), prompts.PROMPT_BUILDERS)
 
         self.assertIn(("mingrelian", "english"), legacy_translator.PROMPT_BUILDERS)
         self.assertIn(("english", "mingrelian"), legacy_translator.PROMPT_BUILDERS)
         self.assertIn(("mingrelian", "georgian"), legacy_translator.PROMPT_BUILDERS)
         self.assertIn(("georgian", "mingrelian"), legacy_translator.PROMPT_BUILDERS)
+        self.assertIn(("tsova_tush", "english"), legacy_translator.PROMPT_BUILDERS)
+        self.assertIn(("english", "tsova_tush"), legacy_translator.PROMPT_BUILDERS)
+        self.assertIn(("tsova_tush", "georgian"), legacy_translator.PROMPT_BUILDERS)
+        self.assertIn(("georgian", "tsova_tush"), legacy_translator.PROMPT_BUILDERS)
+        self.assertIn(("svan", "english"), legacy_translator.PROMPT_BUILDERS)
+        self.assertIn(("english", "svan"), legacy_translator.PROMPT_BUILDERS)
+        self.assertIn(("svan", "georgian"), legacy_translator.PROMPT_BUILDERS)
+        self.assertIn(("georgian", "svan"), legacy_translator.PROMPT_BUILDERS)
 
     def test_legacy_data_path_resolution_still_finds_repo_data(self):
         with tempfile.TemporaryDirectory() as temp_dir:

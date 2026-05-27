@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Calibrate strict Georgian semantic grading on observed Svan held-out errors"
+
+providers:
+  - id: file://candidate_provider.py
+    label: "Recorded candidate output"
+
+prompts:
+  - "{{candidate}}"
+
+defaultTest: file://assertions/svan-doreco-georgian-strict.yaml
+
+tests: file://tests/svan-doreco-georgian-grader-calibration.yaml
+
+maxConcurrency: 7

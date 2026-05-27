@@ -1,0 +1,78 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "TITUS Svan prose blocks: Svan to Georgian"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.5 reasoning none"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: svan
+      target_language: georgian
+      temperature: 0.2
+      max_tokens: 768
+  - id: file://provider.py
+    label: "Gemini 3.1 Flash Lite"
+    config:
+      provider: gemini
+      model: gemini-3.1-flash-lite-preview
+      source_language: svan
+      target_language: georgian
+      temperature: 0.2
+      max_tokens: 768
+
+prompts:
+  - "{{svan}}"
+
+tests: file://datasets/svan-titus-balanced-blocks.csv
+
+maxConcurrency: 12
+
+defaultTest:
+  assert:
+    - type: javascript
+      metric: target_language_fidelity
+      value: |
+        const text = (output || '').trim();
+        if (!text) return { pass: false, score: 0, reason: 'Empty output' };
+
+        const georgian = (text.match(/[ა-ჰ]/g) || []).length;
+        const latin = (text.match(/[A-Za-z]/g) || []).length;
+        const cyrillic = (text.match(/[Ѐ-ӿ]/g) || []).length;
+        const hasCommentary = /(?:translation|translated|answer|final|source|reference)/i.test(text);
+        const pass = georgian >= 1 && latin === 0 && cyrillic === 0 && !hasCommentary;
+
+        return {
+          pass,
+          score: pass ? 1 : 0,
+          reason: pass
+            ? 'Georgian-only translation output'
+            : `Expected Georgian-only output. georgian=${georgian}, latin=${latin}, cyrillic=${cyrillic}, commentary=${hasCommentary}`,
+        };
+    - type: llm-rubric
+      provider: openai:gpt-5-mini
+      metric: semantic_accuracy
+      threshold: 0.8
+      value: |
+        You are grading a Svan-to-Georgian translation from an aligned TITUS prose block.
+
+        Grade semantic correctness, not literal string match.
+
+        Pass if the output preserves the meaning of the Svan source and is a natural Georgian rendering.
+        Be tolerant of natural paraphrase, minor punctuation differences, and compact wording changes.
+
+        Require:
+        - preservation of named entities, numbers, and place names
+        - preservation of the core events, participant roles, and explicit relationships
+        - no invented facts or meaning reversals
+        - no omission of important clauses in longer blocks
+
+        For longer blocks, evaluate clause by clause. Do not pass partial translations.
+        Fail if the output is commentary, mostly non-Georgian, or only loosely related to the reference.
+
+        Source Svan: {{svan}}
+        Reference Georgian: {{georgian}}
+        Length bucket: {{length_bucket}}
+        Confidence: {{confidence}}
+        Notes: {{notes}}

@@ -8,11 +8,17 @@ from typing import Callable, Optional
 from src.translator.data import _load_compact_grammar, _load_grammar
 from src.translator.lookup import (
     _build_high_resource_to_mingrelian_dict_entries,
+    _build_high_resource_to_svan_dict_entries,
+    _build_high_resource_to_tsova_tush_dict_entries,
+    _build_svan_to_georgian_dict_entries,
     grep_search_from_english,
+    grep_search_from_english_for_pack,
     grep_search_from_georgian,
+    grep_search_from_georgian_for_pack,
     grep_search_from_mingrelian,
 )
 from src.translator.text_utils import LANG_LABEL
+from src.language_packs import get_low_resource_pack_for_pair
 
 SUPPORTED_GRAMMAR_POLICIES = {"full", "compact", "none"}
 
@@ -25,20 +31,26 @@ def _normalize_grammar_policy(grammar_policy: Optional[str] = None) -> str:
     return value
 
 
-def _load_grammar_for_policy(grammar_policy: Optional[str] = None) -> str:
+def _load_grammar_for_policy(
+    grammar_policy: Optional[str] = None,
+    pack_id: str = "mingrelian",
+) -> str:
     """Load grammar text according to the selected policy."""
     policy = _normalize_grammar_policy(grammar_policy)
     if policy == "none":
         return ""
     if policy == "compact":
-        return _load_compact_grammar()
-    return _load_grammar()
+        return _load_compact_grammar(pack_id=pack_id)
+    return _load_grammar(pack_id=pack_id)
 
 
-def _measure_prompt_sections(prompt: str) -> dict[str, object]:
+def _measure_prompt_sections(
+    prompt: str,
+    grammar_marker: str | None = None,
+) -> dict[str, object]:
     """Measure prompt sections so evals can compare prompt strategies."""
     dict_marker = "Here are some various dictionary entries for word(s) in that phrase:"
-    grammar_marker = "Here is the Mingrelian grammar information:"
+    grammar_marker = grammar_marker or "Here is the Mingrelian grammar information:"
     grammar_end_marker = "That is the end of the grammar information."
     final_instruction_marker = "Now remember, we are translating the following sentence:"
 
@@ -79,6 +91,8 @@ def _format_exact_candidate_block(
     """Format exact-match candidates for the LLM as a compact high-priority shortlist."""
     in_label = LANG_LABEL.get(source_lang, source_lang)
     out_label = LANG_LABEL.get(target_lang, target_lang)
+    pack = get_low_resource_pack_for_pair(source_lang, target_lang)
+    low_resource_label = pack.display_name if pack else "Mingrelian"
 
     lines = [
         f'Exact full-input candidate matches for "{input_text}" ({in_label} → {out_label}):',
@@ -90,22 +104,22 @@ def _format_exact_candidate_block(
 
     for index, candidate in enumerate(candidates[:12], start=1):
         lines.append(f"Candidate {index}:")
-        if target_lang == "mingrelian":
-            lines.append(f"- Mingrelian: {candidate['target_text']}")
+        if target_lang in {"mingrelian", "tsova_tush", "svan"}:
+            lines.append(f"- {low_resource_label}: {candidate['target_text']}")
             if candidate.get("headword_raw"):
-                lines.append(f"- Mingrelian (Latinized): {candidate['headword_raw']}")
+                lines.append(f"- {low_resource_label} (Latinized): {candidate['headword_raw']}")
             if candidate.get("translation"):
                 lines.append(f"- English gloss: {candidate['translation']}")
         elif target_lang == "english":
             lines.append(f"- English: {candidate['target_text']}")
             if candidate.get("headword"):
-                lines.append(f"- Mingrelian: {candidate['headword']}")
+                lines.append(f"- {low_resource_label}: {candidate['headword']}")
             if candidate.get("headword_raw"):
-                lines.append(f"- Mingrelian (Latinized): {candidate['headword_raw']}")
+                lines.append(f"- {low_resource_label} (Latinized): {candidate['headword_raw']}")
         elif target_lang == "georgian":
             lines.append(f"- Georgian: {candidate['target_text']}")
             if candidate.get("headword"):
-                lines.append(f"- Mingrelian: {candidate['headword']}")
+                lines.append(f"- {low_resource_label}: {candidate['headword']}")
         else:
             lines.append(f"- Candidate translation: {candidate['target_text']}")
 
@@ -126,8 +140,16 @@ def _build_dict_entries(
     lookup_fn: Callable[[str], str],
 ) -> str:
     """Build dictionary entries by looking up each word in the sentence."""
-    if output_lang == "mingrelian" and input_lang in {"english", "georgian"}:
-        return _build_high_resource_to_mingrelian_dict_entries(
+    if input_lang == "svan" and output_lang == "georgian":
+        return _build_svan_to_georgian_dict_entries(sentence, lookup_fn=lookup_fn)
+
+    if output_lang in {"mingrelian", "tsova_tush", "svan"} and input_lang in {"english", "georgian"}:
+        builder = {
+            "mingrelian": _build_high_resource_to_mingrelian_dict_entries,
+            "tsova_tush": _build_high_resource_to_tsova_tush_dict_entries,
+            "svan": _build_high_resource_to_svan_dict_entries,
+        }[output_lang]
+        return builder(
             sentence,
             input_lang=input_lang,
             lookup_fn=lookup_fn,
@@ -153,17 +175,21 @@ def _construct_translation_prompt(
     """Construct the complete translation prompt for a single LLM call."""
     in_label = LANG_LABEL.get(input_lang, input_lang)
     out_label = LANG_LABEL.get(output_lang, output_lang)
+    pack = get_low_resource_pack_for_pair(input_lang, output_lang)
+    dictionary_heading = pack.dictionary_heading if pack else "Mingrelian dictionaries"
+    grammar_subject = pack.grammar_subject if pack else "Mingrelian"
+    grammar_heading = pack.grammar_heading if pack else "Here is the Mingrelian grammar information:"
 
     # Build the base prompt
     prompt = f'''Your task is to translate a phrase or a sentence from {in_label} to {out_label}.
 
-To accomplish this, I will provide you with a set of dictionary entries from Mingrelian dictionaries of different kinds.
+To accomplish this, I will provide you with a set of dictionary entries from {dictionary_heading} of different kinds.
 
 The dictionary may have definitions in Russian, Georgian, or English.'''
 
     # Only add grammar section if we have grammar content
     if grammar:
-        prompt += f''' I will also provide you with Mingrelian grammar information, describing the morphological and syntactual patterns of Mingrelian.'''
+        prompt += f''' I will also provide you with {grammar_subject} grammar information, describing the morphological and syntactual patterns of {grammar_subject}.'''
 
     if exact_candidates_block:
         prompt += f'''
@@ -202,7 +228,7 @@ Here are some various dictionary entries for word(s) in that phrase:
     # Only add grammar if we have it
     if grammar:
         prompt += f'''
-Here is the Mingrelian grammar information:
+{grammar_heading}
 
 {grammar}
 
@@ -233,6 +259,15 @@ def _construct_prompt(
 ) -> str:
     """Construct a prompt for translation."""
     resolved_grammar_policy = _normalize_grammar_policy(grammar_policy)
+    pack = get_low_resource_pack_for_pair(input_lang, output_lang)
+    if (
+        grammar_policy is None
+        and pack
+        and pack.code == "svan"
+        and input_lang == "svan"
+        and output_lang == "georgian"
+    ):
+        resolved_grammar_policy = "none"
     dict_entries = "" if skip_word_lookups else _build_dict_entries(
         sentence,
         input_lang=input_lang,
@@ -243,7 +278,10 @@ def _construct_prompt(
     # Only load grammar when retrieval context exists. The grammar policy selects
     # full Harris, compact translator notes, or no grammar context.
     if (dict_entries and dict_entries.strip()) or (exact_candidates_block and exact_candidates_block.strip()):
-        grammar = _load_grammar_for_policy(resolved_grammar_policy)
+        grammar = _load_grammar_for_policy(
+            resolved_grammar_policy,
+            pack_id=pack.code if pack else "mingrelian",
+        )
     else:
         grammar = ""
 
@@ -333,9 +371,177 @@ def construct_prompt_from_mingrelian_to_georgian(
     )
 
 
+def construct_prompt_from_tsova_tush_to_english(
+    tsova_tush_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
+) -> str:
+    """Construct prompt for Bats → English translation."""
+    from src.translator.lookup import grep_search_from_tsova_tush
+
+    return _construct_prompt(
+        tsova_tush_sentence,
+        input_lang="tsova_tush",
+        output_lang="english",
+        lookup_fn=grep_search_from_tsova_tush,
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
+    )
+
+
+def construct_prompt_from_english_to_tsova_tush(
+    english_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
+) -> str:
+    """Construct prompt for English → Bats translation."""
+    return _construct_prompt(
+        english_sentence,
+        input_lang="english",
+        output_lang="tsova_tush",
+        lookup_fn=lambda word: grep_search_from_english_for_pack(word, "tsova_tush"),
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
+    )
+
+
+def construct_prompt_from_georgian_to_tsova_tush(
+    georgian_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
+) -> str:
+    """Construct prompt for Georgian → Bats translation."""
+    return _construct_prompt(
+        georgian_sentence,
+        input_lang="georgian",
+        output_lang="tsova_tush",
+        lookup_fn=lambda word: grep_search_from_georgian_for_pack(word, "tsova_tush"),
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
+    )
+
+
+def construct_prompt_from_tsova_tush_to_georgian(
+    tsova_tush_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
+) -> str:
+    """Construct prompt for Bats → Georgian translation."""
+    from src.translator.lookup import grep_search_from_tsova_tush
+
+    return _construct_prompt(
+        tsova_tush_sentence,
+        input_lang="tsova_tush",
+        output_lang="georgian",
+        lookup_fn=grep_search_from_tsova_tush,
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
+    )
+
+
+def construct_prompt_from_svan_to_english(
+    svan_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
+) -> str:
+    """Construct prompt for Svan → English translation."""
+    from src.translator.lookup import grep_search_from_svan
+
+    return _construct_prompt(
+        svan_sentence,
+        input_lang="svan",
+        output_lang="english",
+        lookup_fn=grep_search_from_svan,
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
+    )
+
+
+def construct_prompt_from_english_to_svan(
+    english_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
+) -> str:
+    """Construct prompt for English → Svan translation."""
+    return _construct_prompt(
+        english_sentence,
+        input_lang="english",
+        output_lang="svan",
+        lookup_fn=lambda word: grep_search_from_english_for_pack(word, "svan"),
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
+    )
+
+
+def construct_prompt_from_georgian_to_svan(
+    georgian_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
+) -> str:
+    """Construct prompt for Georgian → Svan translation."""
+    return _construct_prompt(
+        georgian_sentence,
+        input_lang="georgian",
+        output_lang="svan",
+        lookup_fn=lambda word: grep_search_from_georgian_for_pack(word, "svan"),
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
+    )
+
+
+def construct_prompt_from_svan_to_georgian(
+    svan_sentence: str,
+    *,
+    exact_candidates_block: str = "",
+    skip_word_lookups: bool = False,
+    grammar_policy: Optional[str] = None,
+) -> str:
+    """Construct prompt for Svan → Georgian translation."""
+    from src.translator.lookup import _grep_search_from_svan_source
+
+    return _construct_prompt(
+        svan_sentence,
+        input_lang="svan",
+        output_lang="georgian",
+        lookup_fn=_grep_search_from_svan_source,
+        exact_candidates_block=exact_candidates_block,
+        skip_word_lookups=skip_word_lookups,
+        grammar_policy=grammar_policy,
+    )
+
+
 PROMPT_BUILDERS = {
     ("mingrelian", "english"): construct_prompt_from_mingrelian_to_english,
     ("english", "mingrelian"): construct_prompt_from_english_to_mingrelian,
     ("mingrelian", "georgian"): construct_prompt_from_mingrelian_to_georgian,
     ("georgian", "mingrelian"): construct_prompt_from_georgian_to_mingrelian,
+    ("tsova_tush", "english"): construct_prompt_from_tsova_tush_to_english,
+    ("english", "tsova_tush"): construct_prompt_from_english_to_tsova_tush,
+    ("tsova_tush", "georgian"): construct_prompt_from_tsova_tush_to_georgian,
+    ("georgian", "tsova_tush"): construct_prompt_from_georgian_to_tsova_tush,
+    ("svan", "english"): construct_prompt_from_svan_to_english,
+    ("english", "svan"): construct_prompt_from_english_to_svan,
+    ("svan", "georgian"): construct_prompt_from_svan_to_georgian,
+    ("georgian", "svan"): construct_prompt_from_georgian_to_svan,
 }

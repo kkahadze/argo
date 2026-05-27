@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "TITUS Svan prose pilot: Svan to Georgian"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.5 reasoning none"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: svan
+      target_language: georgian
+      temperature: 0.2
+      max_tokens: 768
+
+prompts:
+  - "{{svan}}"
+
+tests: file://datasets/svan-titus-balanced-blocks-pilot.csv
+
+maxConcurrency: 12
+
+defaultTest:
+  assert:
+    - type: javascript
+      metric: target_language_fidelity
+      value: |
+        const text = (output || '').trim();
+        if (!text) return { pass: false, score: 0, reason: 'Empty output' };
+
+        const georgian = (text.match(/[ა-ჰ]/g) || []).length;
+        const latin = (text.match(/[A-Za-z]/g) || []).length;
+        const cyrillic = (text.match(/[Ѐ-ӿ]/g) || []).length;
+        const hasCommentary = /(?:translation|translated|answer|final|source|reference)/i.test(text);
+        const pass = georgian >= 1 && latin === 0 && cyrillic === 0 && !hasCommentary;
+
+        return {
+          pass,
+          score: pass ? 1 : 0,
+          reason: pass ? 'Georgian-only translation output' : 'Expected Georgian-only translation output',
+        };
+    - type: llm-rubric
+      provider: openai:gpt-5.5
+      metric: semantic_accuracy
+      threshold: 0.8
+      value: |
+        You are grading a Svan-to-Georgian translation from an aligned TITUS prose block.
+        Grade semantic correctness, not literal string match.
+        Pass only if the output preserves the full meaning of the Svan source and is a natural Georgian rendering.
+        Be tolerant of natural paraphrase and light punctuation differences.
+        Fail if important clauses, named entities, numbers, or participant roles are lost or reversed.
+
+        Source Svan: {{svan}}
+        Reference Georgian: {{georgian}}
+        Length bucket: {{length_bucket}}
