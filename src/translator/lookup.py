@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Translator package helpers split from src.single_call_translator."""
 
+import os
 import string
 from typing import Callable, Optional
 
@@ -11,6 +12,8 @@ except ImportError:
 
 from src.logger import setup_logger
 from src.dictionary_store import get_dictionary_store
+from src.language_packs import get_low_resource_pack_for_pair
+from src.morphology import MorphologyAnalysis, get_morphology_analyzer
 
 from src.translator.data import (
     _load_context_source_entries,
@@ -32,6 +35,22 @@ from src.translator.text_utils import (
 )
 
 logger = setup_logger('translator')
+MAX_RETRIEVAL_CONTEXT_CHARS = int(os.getenv("ARGO_MAX_RETRIEVAL_CONTEXT_CHARS", "8000"))
+MAX_MORPHOLOGY_EVIDENCE_CHARS = int(os.getenv("ARGO_MAX_MORPHOLOGY_EVIDENCE_CHARS", "2400"))
+
+
+def _pack_for_pair(source_lang: str, target_lang: str):
+    return get_low_resource_pack_for_pair(source_lang, target_lang)
+
+
+def _pack_code_for_pair(source_lang: str, target_lang: str) -> str:
+    pack = _pack_for_pair(source_lang, target_lang)
+    return pack.code if pack else "mingrelian"
+
+
+def _low_resource_label(source_lang: str, target_lang: str) -> str:
+    pack = _pack_for_pair(source_lang, target_lang)
+    return pack.display_name if pack else "Mingrelian"
 
 def _collect_master_lexicon_exact_candidates(
     input_text: str,
@@ -42,7 +61,8 @@ def _collect_master_lexicon_exact_candidates(
     input_normalized = _normalize_lookup_value(input_text)
     candidates: list[dict[str, str]] = []
 
-    for headword, headword_raw, translation in _load_master_lexicon_rows():
+    pack_id = _pack_code_for_pair(source_lang, target_lang)
+    for headword, headword_raw, translation in _load_master_lexicon_rows(pack_id=pack_id):
 
         matched_fields: list[str] = []
         if headword and _normalize_lookup_value(headword) == input_normalized:
@@ -55,7 +75,7 @@ def _collect_master_lexicon_exact_candidates(
         if not matched_fields:
             continue
 
-        if source_lang == "mingrelian" and target_lang == "english" and any(
+        if source_lang == pack_id and target_lang == "english" and any(
             field in {"headword", "headword_raw"} for field in matched_fields
         ):
             candidates.append(
@@ -68,7 +88,7 @@ def _collect_master_lexicon_exact_candidates(
                     "matched_on": ", ".join(field for field in matched_fields if field in {"headword", "headword_raw"}),
                 }
             )
-        elif source_lang == "english" and target_lang == "mingrelian" and "translation" in matched_fields:
+        elif source_lang == "english" and target_lang == pack_id and "translation" in matched_fields:
             candidates.append(
                 {
                     "source_name": "master_lexicon",
@@ -90,7 +110,8 @@ def _collect_simple_exact_match_candidates(
 ) -> list[dict[str, str]]:
     """Collect exact-match candidates from the existing extractive dictionaries."""
     candidates: list[dict[str, str]] = []
-    store = get_dictionary_store()
+    pack_id = _pack_code_for_pair(source_lang, target_lang)
+    store = get_dictionary_store(pack_id)
 
     for row in store.exact_translation_overrides(source_lang, target_lang, input_text):
         candidates.append(
@@ -106,17 +127,17 @@ def _collect_simple_exact_match_candidates(
     if candidates:
         return candidates
 
-    # sentence_pairs.tsv (Mingrelian ↔ English)
-    if (source_lang, target_lang) in [("mingrelian", "english"), ("english", "mingrelian")]:
-        if source_lang == "mingrelian":
-            for row in store.exact_sentence_mingrelian(input_text):
+    # sentence_pairs.tsv (low-resource ↔ English)
+    if (source_lang, target_lang) in [(pack_id, "english"), ("english", pack_id)]:
+        if source_lang == pack_id:
+            for row in store.exact_sentence_low_resource(input_text):
                 candidates.append(
                     {
                         "source_name": "sentence_pairs",
                         "target_text": row.english,
-                        "headword": row.mingrelian,
+                        "headword": row.low_resource,
                         "translation": row.english,
-                        "matched_on": "mingrelian",
+                        "matched_on": pack_id,
                     }
                 )
         else:
@@ -124,33 +145,33 @@ def _collect_simple_exact_match_candidates(
                 candidates.append(
                     {
                         "source_name": "sentence_pairs",
-                        "target_text": row.mingrelian,
-                        "headword": row.mingrelian,
+                        "target_text": row.low_resource,
+                        "headword": row.low_resource,
                         "translation": row.english,
                         "matched_on": "english",
                     }
                 )
 
-    # kk.tsv (Mingrelian ↔ Georgian)
-    if source_lang == "mingrelian" and target_lang == "georgian":
-        for row in store.exact_kk_mingrelian(input_text):
+    # kk.tsv (low-resource ↔ Georgian)
+    if source_lang == pack_id and target_lang == "georgian":
+        for row in store.exact_kk_low_resource(input_text):
             georgian_primary, _ = _split_figurative_gloss(row.georgian, "ka")
             candidates.append(
                 {
                     "source_name": "kk.tsv",
                     "target_text": georgian_primary or row.georgian,
-                    "headword": row.mingrelian,
+                    "headword": row.low_resource,
                     "translation": georgian_primary or row.georgian,
-                    "matched_on": "mingrelian",
+                    "matched_on": pack_id,
                 }
             )
-    elif source_lang == "georgian" and target_lang == "mingrelian":
+    elif source_lang == "georgian" and target_lang == pack_id:
         for row in store.exact_kk_georgian(input_text):
             candidates.append(
                 {
                     "source_name": "kk.tsv",
-                    "target_text": row.mingrelian,
-                    "headword": row.mingrelian,
+                    "target_text": row.low_resource,
+                    "headword": row.low_resource,
                     "translation": row.georgian,
                     "matched_on": "georgian",
                 }
@@ -172,7 +193,13 @@ def collect_exact_match_candidates(
     index_by_target: dict[str, int] = {}
 
     for candidate in combined:
-        target_key = _normalize_lookup_value(candidate.get("target_text", ""))
+        target_text = candidate.get("target_text", "")
+        pack = _pack_for_pair(source_lang, target_lang)
+        target_key = _normalize_lookup_value(
+            pack.canonicalize_lookup_target(target_text)
+            if pack and target_lang == pack.code
+            else target_text
+        )
         if not target_key:
             continue
 
@@ -218,6 +245,27 @@ def _collect_token_exact_candidates(word: str, source_lang: str, target_lang: st
         deduped.append(candidate)
         seen_targets.add(target_key)
     return deduped
+
+
+def _join_ranked_context(blocks: list[str], max_chars: int = MAX_RETRIEVAL_CONTEXT_CHARS) -> str:
+    """Join prioritized retrieval blocks once, with one total prompt budget."""
+    retained: list[str] = []
+    seen: set[str] = set()
+    chars_used = 0
+    for block in blocks:
+        cleaned = (block or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        separator = "\n\n" if retained else ""
+        remaining = max_chars - chars_used - len(separator)
+        if remaining <= 0:
+            break
+        retained.append(separator + cleaned[:remaining].rstrip())
+        chars_used += len(retained[-1])
+        if chars_used >= max_chars:
+            break
+    return "".join(retained)
 
 
 def _build_high_resource_to_mingrelian_dict_entries(
@@ -284,40 +332,233 @@ def _build_high_resource_to_mingrelian_dict_entries(
     return "\n".join(block.strip() for block in blocks if block and block.strip())
 
 
-def grep_search_pairs(word: str, *, standalone_only: bool = False) -> tuple[str, bool]:
+def _build_high_resource_to_low_resource_dict_entries(
+    sentence: str,
+    *,
+    input_lang: str,
+    lookup_fn: Callable[[str], str],
+    pack_id: str,
+    target_label: str,
+    include_parallel_pairs: bool = False,
+) -> str:
+    """Build higher-signal prompt context for English/Georgian -> one target pack."""
+    lookup_sentence = sentence
+    lookup_source_lang = input_lang
+    effective_lookup_fn = lookup_fn
+    blocks: list[str] = []
+
+    if input_lang == "english" and GoogleTranslator is not None:
+        try:
+            georgian_bridge = GoogleTranslator(source="en", target="ka").translate(sentence)
+        except Exception:
+            georgian_bridge = ""
+        if georgian_bridge:
+            lookup_sentence = georgian_bridge
+            lookup_source_lang = "georgian"
+            effective_lookup_fn = lambda token: grep_search_from_georgian_for_pack(token, pack_id)
+            blocks.append(
+                "High-resource bridge translation of the full input for sense disambiguation:\n"
+                f"- Georgian: {georgian_bridge}\n"
+                f"Use this only as context; the final answer must still be {target_label}."
+            )
+
+    tokens = [
+        word.strip(string.punctuation + "“”„’'\"")
+        for word in lookup_sentence.split()
+        if word.strip(string.punctuation + "“”„’'\"")
+    ]
+
+    for token in tokens:
+        parallel_evidence = (
+            grep_search_parallel_pairs(
+                token,
+                source_language=lookup_source_lang,
+                pack_id=pack_id,
+                max_rows=2,
+            )
+            if include_parallel_pairs
+            else ""
+        )
+        exact_candidates = _collect_token_exact_candidates(token, lookup_source_lang, pack_id)
+        if exact_candidates:
+            blocks.append(
+                _format_token_candidate_block(
+                    token=token,
+                    source_lang=lookup_source_lang,
+                    candidates=exact_candidates,
+                    target_label=target_label,
+                )
+            )
+            if parallel_evidence:
+                blocks.append(parallel_evidence)
+            continue
+
+        if parallel_evidence:
+            blocks.append(parallel_evidence)
+        elif _is_low_value_lookup_term(token, lookup_source_lang, len(tokens)):
+            continue
+
+        token_lookup = effective_lookup_fn(token)
+        if token_lookup and token_lookup.strip():
+            blocks.append(token_lookup)
+
+    if include_parallel_pairs:
+        return _join_ranked_context(blocks)
+    return "\n".join(block.strip() for block in blocks if block and block.strip())
+
+
+def _build_high_resource_to_tsova_tush_dict_entries(
+    sentence: str,
+    *,
+    input_lang: str,
+    lookup_fn: Callable[[str], str],
+) -> str:
+    """Build higher-signal prompt context for English/Georgian -> Bats."""
+    return _build_high_resource_to_low_resource_dict_entries(
+        sentence,
+        input_lang=input_lang,
+        lookup_fn=lookup_fn,
+        pack_id="tsova_tush",
+        target_label="Bats",
+    )
+
+
+def _build_high_resource_to_svan_dict_entries(
+    sentence: str,
+    *,
+    input_lang: str,
+    lookup_fn: Callable[[str], str],
+) -> str:
+    """Build higher-signal prompt context for English/Georgian -> Svan."""
+    return _build_high_resource_to_low_resource_dict_entries(
+        sentence,
+        input_lang=input_lang,
+        lookup_fn=lookup_fn,
+        pack_id="svan",
+        target_label="Svan",
+        include_parallel_pairs=True,
+    )
+
+
+def _build_svan_to_georgian_dict_entries(
+    sentence: str,
+    *,
+    lookup_fn: Callable[[str], str],
+) -> str:
+    """Build bounded, source-side-only retrieval context for Svan -> Georgian."""
+    tokens = [
+        word.strip(string.punctuation + "“”„’'\"")
+        for word in sentence.split()
+        if word.strip(string.punctuation + "“”„’'\"")
+    ]
+    exact_blocks: list[str] = []
+    fallback_blocks = [grep_search_morphology(sentence, pack_id="svan")]
+
+    for token in tokens:
+        parallel_evidence = grep_search_parallel_pairs(
+            token,
+            source_language="svan",
+            pack_id="svan",
+            max_rows=2,
+        )
+        exact_candidates = _collect_token_exact_candidates(token, "svan", "georgian")
+        if exact_candidates:
+            exact_blocks.append(
+                _format_token_candidate_block(
+                    token=token,
+                    source_lang="svan",
+                    candidates=exact_candidates,
+                    target_label="Georgian",
+                )
+            )
+            if parallel_evidence:
+                fallback_blocks.append(parallel_evidence)
+            continue
+        morphology_evidence = grep_search_morphology(token, pack_id="svan")
+        if parallel_evidence:
+            fallback_blocks.append(parallel_evidence)
+        if morphology_evidence:
+            fallback_blocks.append(morphology_evidence)
+        if parallel_evidence or morphology_evidence:
+            continue
+        if _is_low_value_lookup_term(token, "svan", len(tokens)):
+            continue
+        token_lookup = lookup_fn(token)
+        if token_lookup and token_lookup.strip():
+            fallback_blocks.append(token_lookup)
+
+    return _join_ranked_context(exact_blocks + fallback_blocks)
+
+
+def _build_svan_to_english_dict_entries(
+    sentence: str,
+    *,
+    lookup_fn: Callable[[str], str],
+) -> str:
+    """Keep reviewed multiword morphology cells intact before token-level lookup."""
+    blocks = [grep_search_morphology(sentence, pack_id="svan")]
+    for word in sentence.split():
+        cleaned_word = word.strip(string.punctuation)
+        if cleaned_word:
+            blocks.append(lookup_fn(cleaned_word))
+    return _join_ranked_context(blocks)
+
+
+def grep_search_pairs(
+    word: str,
+    *,
+    standalone_only: bool = False,
+    pack_id: str = "mingrelian",
+) -> tuple[str, bool]:
     """
     Search sentence_pairs.tsv for English translations, prioritizing standalone word matches.
     Returns: (result_string, has_standalone_matches)
     """
-    result = get_dictionary_store().search_sentence_pairs(word, standalone_only=standalone_only)
+    result = get_dictionary_store(pack_id).search_sentence_pairs(word, standalone_only=standalone_only)
     return _truncate_lookup_output(result.output), result.has_standalone_matches
 
 
-def grep_search_gal(word: str, *, standalone_only: bool = False) -> tuple[str, bool]:
+def grep_search_gal(
+    word: str,
+    *,
+    standalone_only: bool = False,
+    pack_id: str = "mingrelian",
+) -> tuple[str, bool]:
     """
     Search gal.tsv for Russian translations, prioritizing standalone word matches.
     Returns: (result_string, has_standalone_matches)
     """
-    result = get_dictionary_store().search_gal(word, standalone_only=standalone_only)
+    result = get_dictionary_store(pack_id).search_gal(word, standalone_only=standalone_only)
     return _truncate_lookup_output(result.output), result.has_standalone_matches
 
 
-def grep_search_kk(word: str, *, standalone_only: bool = False) -> tuple[str, bool]:
+def grep_search_kk(
+    word: str,
+    *,
+    standalone_only: bool = False,
+    pack_id: str = "mingrelian",
+) -> tuple[str, bool]:
     """
     Search kk.tsv for Russian and Georgian translations, prioritizing standalone word matches.
     Returns: (result_string, has_standalone_matches)
     """
-    result = get_dictionary_store().search_kk(word, standalone_only=standalone_only)
+    result = get_dictionary_store(pack_id).search_kk(word, standalone_only=standalone_only)
     return _truncate_lookup_output(result.output), result.has_standalone_matches
 
 
-def grep_search_context_source(word: str, *, standalone_only: bool = False) -> str:
+def grep_search_context_source(
+    word: str,
+    *,
+    standalone_only: bool = False,
+    pack_id: str = "mingrelian",
+    match_label: str | None = None,
+) -> str:
     """
     Search context_source.txt for relevant entry blocks.
     Splits text by empty lines and returns the block containing the search term.
     Prioritizes standalone word matches over substring matches.
     """
-    entries = _load_context_source_entries()
+    entries = _load_context_source_entries(pack_id=pack_id)
     if not entries:
         return ""
 
@@ -326,11 +567,19 @@ def grep_search_context_source(word: str, *, standalone_only: bool = False) -> s
     substring_output = LOOKUP_SEPARATOR
 
     for entry in entries:
-        if _is_standalone_match(entry, word):
+        search_text = entry
+        if match_label:
+            search_text = "\n".join(
+                line for line in entry.splitlines()
+                if line.startswith(f"{match_label}:")
+            )
+            if not search_text:
+                continue
+        if _is_standalone_match(search_text, word):
             # Standalone match found
             standalone_output += entry.strip()
             standalone_output += "\n" + LOOKUP_SEPARATOR
-        elif _is_substring_match(entry, word):
+        elif _is_substring_match(search_text, word):
             # Substring match
             substring_output += entry.strip()
             substring_output += "\n" + LOOKUP_SEPARATOR
@@ -343,7 +592,91 @@ def grep_search_context_source(word: str, *, standalone_only: bool = False) -> s
     return ""
 
 
+def grep_search_parallel_pairs(
+    word: str,
+    *,
+    source_language: str,
+    pack_id: str = "svan",
+    max_rows: int = 3,
+) -> str:
+    """Retrieve audited Georgian parallel examples without making them exact overrides."""
+    result = get_dictionary_store(pack_id).search_parallel_pairs(
+        word,
+        source_language=source_language,
+        max_rows=max_rows,
+    )
+    return _truncate_lookup_output(result.output)
+
+
+def grep_search_morphology(word: str, *, pack_id: str) -> str:
+    """Retrieve bounded pack-specific morphology evidence and attested lemma entries."""
+    if (
+        pack_id == "svan"
+        and os.getenv("ARGO_ENABLE_SVAN_MORPHOLOGY", "1").strip().lower()
+        in {"0", "false", "no", "off"}
+    ):
+        return ""
+    analyzer = get_morphology_analyzer(pack_id)
+    if analyzer is None:
+        return ""
+    analyses = analyzer.analyze(word)
+    if not analyses:
+        return ""
+
+    output_parts = [f"\nMorphology evidence for {word}:\n"]
+    store = get_dictionary_store(pack_id)
+    emitted_lemma_entries: set[str] = set()
+    lemma_entries_by_related_form: dict[str, tuple[str, ...]] = {}
+    for analysis in analyses[:6]:
+        related_form = analysis.related_form
+        lemma_entries: tuple[str, ...] = ()
+        if related_form:
+            lemma_entries = lemma_entries_by_related_form.setdefault(
+                related_form,
+                tuple(
+                    result.output
+                    for result in (
+                        store.search_sentence_low_resource(related_form, standalone_only=True),
+                        store.search_gal_low_resource(related_form, standalone_only=True),
+                        store.search_kk_low_resource(related_form, standalone_only=True),
+                    )
+                    if result.output
+                ),
+            )
+        if analysis.evidence_type == "Attested Topuria-Kaldani variant" and not lemma_entries:
+            continue
+        output_parts.append(_format_morphology_analysis(analysis))
+        if not related_form or related_form in emitted_lemma_entries:
+            continue
+        emitted_lemma_entries.add(related_form)
+        output_parts.extend(lemma_entries)
+
+    if len(output_parts) == 1:
+        return ""
+    return _truncate_lookup_output("".join(output_parts)[:MAX_MORPHOLOGY_EVIDENCE_CHARS])
+
+
+def _format_morphology_analysis(analysis: MorphologyAnalysis) -> str:
+    lines = [
+        LOOKUP_SEPARATOR.rstrip(),
+        f"Evidence type: {analysis.evidence_type}",
+        f"Surface form: {analysis.surface}",
+    ]
+    if analysis.related_form:
+        lines.append(f"Related lexicon-attested form: {analysis.related_form}")
+    if analysis.source_id:
+        lines.append(f"SOURCE: {analysis.source_id}")
+    if analysis.confidence:
+        lines.append(f"Confidence: {analysis.confidence}")
+    lines.extend(f"{label}: {value}" for label, value in analysis.details if value)
+    return "\n".join(lines) + "\n"
+
+
 def grep_search_from_english(word: str) -> str:
+    return grep_search_from_english_for_pack(word, "mingrelian")
+
+
+def grep_search_from_english_for_pack(word: str, pack_id: str) -> str:
     """
     Search all dictionaries from English word.
     Short-circuits context-source search if standalone matches found in extractive dictionaries.
@@ -362,10 +695,10 @@ def grep_search_from_english(word: str) -> str:
     output = f"\nResults for {word}:\n"
 
     # Run extractive dictionary searches
-    pairs_result, pairs_has_standalone = grep_search_pairs(word)
-    gal_result, gal_has_standalone = grep_search_gal(res_ru)
-    kk_ru_result, kk_ru_has_standalone = grep_search_kk(res_ru)
-    kk_ge_result, kk_ge_has_standalone = grep_search_kk(res_ge)
+    pairs_result, pairs_has_standalone = grep_search_pairs(word, pack_id=pack_id)
+    gal_result, gal_has_standalone = grep_search_gal(res_ru, pack_id=pack_id)
+    kk_ru_result, kk_ru_has_standalone = grep_search_kk(res_ru, pack_id=pack_id)
+    kk_ge_result, kk_ge_has_standalone = grep_search_kk(res_ge, pack_id=pack_id)
 
     output += pairs_result
     output += gal_result
@@ -377,12 +710,12 @@ def grep_search_from_english(word: str) -> str:
                           kk_ru_has_standalone or kk_ge_has_standalone)
 
     if not has_any_standalone:
-        output += grep_search_context_source(res_ge)
+        output += grep_search_context_source(res_ge, pack_id=pack_id)
 
     return _truncate_lookup_output(output)
 
 
-def grep_search_from_mingrelian(word: str) -> str:
+def _grep_search_from_low_resource(word: str, pack_id: str, display_name: str) -> str:
     """
     Search all dictionaries from Mingrelian word.
     Short-circuits context-source search if standalone matches found in extractive dictionaries.
@@ -393,7 +726,7 @@ def grep_search_from_mingrelian(word: str) -> str:
     def _ends_with_mkhedruli_vowel(s: str) -> bool:
         if not s:
             return False
-        # Include Mingrelian schwa letter (ჷ) as vowel-like in our data.
+        # Include schwa letter (ჷ) as vowel-like in our data.
         return s[-1] in {"ა", "ე", "ი", "ო", "უ", "ჷ"}
 
     def _case_strip_candidates_mkhedruli(w: str) -> list[str]:
@@ -526,9 +859,9 @@ def grep_search_from_mingrelian(word: str) -> str:
     output = f"\nResults for {word}:\n"
 
     # Run extractive dictionary searches
-    pairs_result, pairs_has_standalone = grep_search_pairs(word)
-    gal_result, gal_has_standalone = grep_search_gal(word)
-    kk_result, kk_has_standalone = grep_search_kk(word)
+    pairs_result, pairs_has_standalone = grep_search_pairs(word, pack_id=pack_id)
+    gal_result, gal_has_standalone = grep_search_gal(word, pack_id=pack_id)
+    kk_result, kk_has_standalone = grep_search_kk(word, pack_id=pack_id)
 
     output += pairs_result
     output += gal_result
@@ -539,21 +872,25 @@ def grep_search_from_mingrelian(word: str) -> str:
 
     context_source_result = ""
     if not has_any_standalone:
-        context_source_result = grep_search_context_source(word)
+        context_source_result = grep_search_context_source(word, pack_id=pack_id)
         output += context_source_result
+
+    if pack_id == "svan" and not (pairs_result or gal_result or kk_result or context_source_result):
+        output += grep_search_morphology(word, pack_id=pack_id)
+        return _truncate_lookup_output(output)
 
     # If absolutely nothing matched across all four sources, try a conservative
     # case-suffix stripping fallback (e.g., ...თ → stem).
     case_fallback_applied = False
-    if not (pairs_result or gal_result or kk_result or context_source_result):
+    if pack_id == "mingrelian" and not (pairs_result or gal_result or kk_result or context_source_result):
         for stem in _case_strip_candidates_mkhedruli(word):
             # First: standalone-only search. If we find any standalone match for this
             # candidate, we return ONLY standalone matches and stop (no partial matches,
             # and no further candidates like the bare stem).
-            pairs2_s, pairs2_has_s = grep_search_pairs(stem, standalone_only=True)
-            gal2_s, gal2_has_s = grep_search_gal(stem, standalone_only=True)
-            kk2_s, kk2_has_s = grep_search_kk(stem, standalone_only=True)
-            context_source2_s = grep_search_context_source(stem, standalone_only=True)
+            pairs2_s, pairs2_has_s = grep_search_pairs(stem, standalone_only=True, pack_id=pack_id)
+            gal2_s, gal2_has_s = grep_search_gal(stem, standalone_only=True, pack_id=pack_id)
+            kk2_s, kk2_has_s = grep_search_kk(stem, standalone_only=True, pack_id=pack_id)
+            context_source2_s = grep_search_context_source(stem, standalone_only=True, pack_id=pack_id)
 
             output2_s = pairs2_s + gal2_s + kk2_s + context_source2_s
             has_any_standalone2 = pairs2_has_s or gal2_has_s or kk2_has_s or bool(context_source2_s)
@@ -565,13 +902,13 @@ def grep_search_from_mingrelian(word: str) -> str:
                 break
 
             # Otherwise, fall back to the normal grep-style matching for this candidate.
-            pairs2, pairs2_has = grep_search_pairs(stem)
-            gal2, gal2_has = grep_search_gal(stem)
-            kk2, kk2_has = grep_search_kk(stem)
+            pairs2, pairs2_has = grep_search_pairs(stem, pack_id=pack_id)
+            gal2, gal2_has = grep_search_gal(stem, pack_id=pack_id)
+            kk2, kk2_has = grep_search_kk(stem, pack_id=pack_id)
 
             output2 = pairs2 + gal2 + kk2
             has_any_standalone2 = pairs2_has or gal2_has or kk2_has
-            context_source2 = "" if has_any_standalone2 else grep_search_context_source(stem)
+            context_source2 = "" if has_any_standalone2 else grep_search_context_source(stem, pack_id=pack_id)
             output2 += context_source2
 
             if output2:
@@ -582,13 +919,15 @@ def grep_search_from_mingrelian(word: str) -> str:
 
     # If we STILL have no hits, assume this might be a verb with a preverb attached
     # and try stripping a simple preverb.
-    if not (pairs_result or gal_result or kk_result or context_source_result or case_fallback_applied):
+    if pack_id == "mingrelian" and not (
+        pairs_result or gal_result or kk_result or context_source_result or case_fallback_applied
+    ):
         for stem in _preverb_strip_candidates_mkhedruli(word):
             # Prefer standalone-only results for the stripped stem.
-            pairs2_s, pairs2_has_s = grep_search_pairs(stem, standalone_only=True)
-            gal2_s, gal2_has_s = grep_search_gal(stem, standalone_only=True)
-            kk2_s, kk2_has_s = grep_search_kk(stem, standalone_only=True)
-            context_source2_s = grep_search_context_source(stem, standalone_only=True)
+            pairs2_s, pairs2_has_s = grep_search_pairs(stem, standalone_only=True, pack_id=pack_id)
+            gal2_s, gal2_has_s = grep_search_gal(stem, standalone_only=True, pack_id=pack_id)
+            kk2_s, kk2_has_s = grep_search_kk(stem, standalone_only=True, pack_id=pack_id)
+            context_source2_s = grep_search_context_source(stem, standalone_only=True, pack_id=pack_id)
 
             output2_s = pairs2_s + gal2_s + kk2_s + context_source2_s
             has_any_standalone2 = pairs2_has_s or gal2_has_s or kk2_has_s or bool(context_source2_s)
@@ -599,13 +938,13 @@ def grep_search_from_mingrelian(word: str) -> str:
                 break
 
             # Otherwise allow normal grep-style matches.
-            pairs2, pairs2_has = grep_search_pairs(stem)
-            gal2, gal2_has = grep_search_gal(stem)
-            kk2, kk2_has = grep_search_kk(stem)
+            pairs2, pairs2_has = grep_search_pairs(stem, pack_id=pack_id)
+            gal2, gal2_has = grep_search_gal(stem, pack_id=pack_id)
+            kk2, kk2_has = grep_search_kk(stem, pack_id=pack_id)
 
             output2 = pairs2 + gal2 + kk2
             has_any_standalone2 = pairs2_has or gal2_has or kk2_has
-            context_source2 = "" if has_any_standalone2 else grep_search_context_source(stem)
+            context_source2 = "" if has_any_standalone2 else grep_search_context_source(stem, pack_id=pack_id)
             output2 += context_source2
 
             if output2:
@@ -616,7 +955,48 @@ def grep_search_from_mingrelian(word: str) -> str:
     return _truncate_lookup_output(output)
 
 
+def grep_search_from_mingrelian(word: str) -> str:
+    """Search all dictionaries from Mingrelian word."""
+    return _grep_search_from_low_resource(word, "mingrelian", "Mingrelian")
+
+
+def grep_search_from_tsova_tush(word: str) -> str:
+    """Search all dictionaries from Bats word."""
+    return _grep_search_from_low_resource(word, "tsova_tush", "Bats")
+
+
+def _grep_search_from_svan_source(word: str) -> str:
+    """Search only Svan-side fields when translating from Svan."""
+    store = get_dictionary_store("svan")
+    results = [
+        store.search_sentence_low_resource(word),
+        store.search_gal_low_resource(word),
+        store.search_kk_low_resource(word),
+    ]
+    output_parts = [result.output for result in results if result.output]
+    if not any(result.has_standalone_matches for result in results):
+        context_result = grep_search_context_source(
+            word,
+            pack_id="svan",
+            match_label="Svan",
+        )
+        if context_result:
+            output_parts.append(context_result)
+    if not output_parts:
+        return grep_search_morphology(word, pack_id="svan")
+    return _truncate_lookup_output(f"\nResults for {word}:\n" + "".join(output_parts))
+
+
+def grep_search_from_svan(word: str) -> str:
+    """Search all dictionaries from Svan word for existing non-Georgian paths."""
+    return _grep_search_from_low_resource(word, "svan", "Svan")
+
+
 def grep_search_from_georgian(word: str) -> str:
+    return grep_search_from_georgian_for_pack(word, "mingrelian")
+
+
+def grep_search_from_georgian_for_pack(word: str, pack_id: str) -> str:
     """
     Search all dictionaries from Georgian word.
     Short-circuits context-source search if standalone matches found in extractive dictionaries.
@@ -635,9 +1015,9 @@ def grep_search_from_georgian(word: str) -> str:
     output = f"\nResults for {word}:\n"
 
     # Run extractive dictionary searches
-    pairs_result, pairs_has_standalone = grep_search_pairs(res_en)
-    kk_result, kk_has_standalone = grep_search_kk(word)
-    gal_result, gal_has_standalone = grep_search_gal(res_ru)
+    pairs_result, pairs_has_standalone = grep_search_pairs(res_en, pack_id=pack_id)
+    kk_result, kk_has_standalone = grep_search_kk(word, pack_id=pack_id)
+    gal_result, gal_has_standalone = grep_search_gal(res_ru, pack_id=pack_id)
 
     output += pairs_result
     output += kk_result
@@ -647,7 +1027,7 @@ def grep_search_from_georgian(word: str) -> str:
     has_any_standalone = pairs_has_standalone or kk_has_standalone or gal_has_standalone
 
     if not has_any_standalone:
-        output += grep_search_context_source(word)
+        output += grep_search_context_source(word, pack_id=pack_id)
 
     return _truncate_lookup_output(output)
 
@@ -659,53 +1039,59 @@ def check_exact_match_simple(input_text: str, source_lang: str, target_lang: str
 
     This is the simple direct lookup without Google Translate augmentation.
     """
-    store = get_dictionary_store()
+    pack_id = _pack_code_for_pair(source_lang, target_lang)
+    store = get_dictionary_store(pack_id)
 
     overrides = store.exact_translation_overrides(source_lang, target_lang, input_text)
     if overrides:
         return overrides[0].target_text
 
-    # Check sentence_pairs.tsv (Mingrelian ↔ English)
-    if (source_lang, target_lang) in [("mingrelian", "english"), ("english", "mingrelian")]:
-        if source_lang == "mingrelian":
-            matches = store.exact_sentence_mingrelian(input_text)
+    # Check sentence_pairs.tsv (low-resource ↔ English)
+    if (source_lang, target_lang) in [(pack_id, "english"), ("english", pack_id)]:
+        if source_lang == pack_id:
+            matches = store.exact_sentence_low_resource(input_text)
             if matches:
                 return matches[0].english
         else:
             matches = store.exact_sentence_english(input_text)
             if matches:
-                return matches[0].mingrelian
+                return matches[0].low_resource
 
-    # Check kk.tsv (Mingrelian ↔ Russian ↔ Georgian)
-    if source_lang == "mingrelian" and target_lang == "georgian":
-        matches = store.exact_kk_mingrelian(input_text)
+    # Check kk.tsv (low-resource ↔ Russian ↔ Georgian)
+    if source_lang == pack_id and target_lang == "georgian":
+        matches = store.exact_kk_low_resource(input_text)
         if matches:
             georgian_primary, _ = _split_figurative_gloss(matches[0].georgian, "ka")
             return georgian_primary or matches[0].georgian
 
-    elif source_lang == "georgian" and target_lang == "mingrelian":
+    elif source_lang == "georgian" and target_lang == pack_id:
         matches = store.exact_kk_georgian(input_text)
         if matches:
-            return matches[0].mingrelian
+            return matches[0].low_resource
 
-    # Check gal.tsv (Russian ↔ Mingrelian)
-    if source_lang == "russian" and target_lang == "mingrelian":
+    # Check gal.tsv (Russian ↔ low-resource)
+    if source_lang == "russian" and target_lang == pack_id:
         matches = store.exact_gal_russian(input_text)
         if matches:
-            return matches[0].mingrelian
+            return matches[0].low_resource
 
-    elif source_lang == "mingrelian" and target_lang == "russian":
-        matches = store.exact_gal_mingrelian(input_text)
+    elif source_lang == pack_id and target_lang == "russian":
+        matches = store.exact_gal_low_resource(input_text)
         if matches:
             return matches[0].russian
 
     return None
 
 
-def find_mingrelian_in_dicts(text: str, target_lang: Optional[str] = None) -> Optional[tuple[str, str, str]]:
+def find_low_resource_in_dicts(
+    text: str,
+    *,
+    pack_id: str = "mingrelian",
+    target_lang: Optional[str] = None,
+) -> Optional[tuple[str, str, str]]:
     """
     Find ANY translation for a text in dictionaries, searching across all columns.
-    Returns (mingrelian, other_language_text, other_language_code) if found.
+    Returns (low_resource, other_language_text, other_language_code) if found.
 
     Search order prioritizes clean extractive dictionaries (sentence_pairs, gal) over kk.
 
@@ -713,49 +1099,61 @@ def find_mingrelian_in_dicts(text: str, target_lang: Optional[str] = None) -> Op
         text: Text to search for (case-insensitive)
 
     Returns:
-        tuple or None: (mingrelian_text, other_lang_text, lang_code) if found
+        tuple or None: (low_resource_text, other_lang_text, lang_code) if found
     """
-    store = get_dictionary_store()
+    store = get_dictionary_store(pack_id)
 
-    # Priority 1: Search sentence_pairs.tsv (English ↔ Mingrelian, cleanest)
-    for row in store.exact_sentence_mingrelian(text):
-        return (row.mingrelian, row.english, "en")
+    # Priority 1: Search sentence_pairs.tsv (English ↔ low-resource, cleanest)
+    for row in store.exact_sentence_low_resource(text):
+        return (row.low_resource, row.english, "en")
     for row in store.exact_sentence_english(text):
-        return (row.mingrelian, row.english, "en")
+        return (row.low_resource, row.english, "en")
 
-    # Priority 2: Search gal.tsv (Russian ↔ Mingrelian, reliable)
-    for row in store.exact_gal_mingrelian(text):
-        return (row.mingrelian, row.russian, "ru")
+    # Priority 2: Search gal.tsv (Russian ↔ low-resource, reliable)
+    for row in store.exact_gal_low_resource(text):
+        return (row.low_resource, row.russian, "ru")
     for row in store.exact_gal_russian(text):
-        return (row.mingrelian, row.russian, "ru")
+        return (row.low_resource, row.russian, "ru")
 
     # Priority 3: Search kk.tsv (may have data quality issues, use as fallback)
-    for row in store.exact_kk_mingrelian(text):
+    for row in store.exact_kk_low_resource(text):
         bridge_text, lang_code = _choose_kk_bridge_gloss(row.russian, row.georgian, target_lang)
         if bridge_text and lang_code:
-            return (row.mingrelian, bridge_text, lang_code)
-        return (row.mingrelian, row.georgian, "ka")
+            return (row.low_resource, bridge_text, lang_code)
+        return (row.low_resource, row.georgian, "ka")
     for row in store.exact_kk_georgian(text):
         georgian_primary, _ = _split_figurative_gloss(row.georgian, "ka")
-        return (row.mingrelian, georgian_primary or row.georgian, "ka")
+        return (row.low_resource, georgian_primary or row.georgian, "ka")
     for row in store.exact_kk_russian(text):
         russian_primary, _ = _split_figurative_gloss(row.russian, "ru")
-        return (row.mingrelian, russian_primary or row.russian, "ru")
+        return (row.low_resource, russian_primary or row.russian, "ru")
 
     return None
+
+
+def find_mingrelian_in_dicts(text: str, target_lang: Optional[str] = None) -> Optional[tuple[str, str, str]]:
+    return find_low_resource_in_dicts(text, pack_id="mingrelian", target_lang=target_lang)
+
+
+def find_tsova_tush_in_dicts(text: str, target_lang: Optional[str] = None) -> Optional[tuple[str, str, str]]:
+    return find_low_resource_in_dicts(text, pack_id="tsova_tush", target_lang=target_lang)
+
+
+def find_svan_in_dicts(text: str, target_lang: Optional[str] = None) -> Optional[tuple[str, str, str]]:
+    return find_low_resource_in_dicts(text, pack_id="svan", target_lang=target_lang)
 
 
 def check_exact_match_with_google_translate(input_text: str, source_lang: str, target_lang: str) -> Optional[str]:
     """
     Advanced exact match using Google Translate to bridge high-resource languages.
 
-    SCENARIO 1: Translating TO Mingrelian (from English/Georgian)
+    SCENARIO 1: Translating TO a low-resource target (from English/Georgian)
     - Translate input to all high-resource languages (en, ka, ru)
     - Search dictionaries for each translated version
-    - Return Mingrelian if found
+    - Return the low-resource match if found
 
-    SCENARIO 2: Translating FROM Mingrelian (to English/Georgian)
-    - Search dictionaries for Mingrelian word
+    SCENARIO 2: Translating FROM a low-resource source (to English/Georgian)
+    - Search dictionaries for that low-resource word
     - If found with any high-resource language pair
     - Google Translate that language to target
     - Return translation
@@ -763,8 +1161,12 @@ def check_exact_match_with_google_translate(input_text: str, source_lang: str, t
     if GoogleTranslator is None:
         return None
 
-    # SCENARIO 1: Translating TO Mingrelian from high-resource language
-    if target_lang == "mingrelian" and source_lang in ["english", "georgian"]:
+    pack = _pack_for_pair(source_lang, target_lang)
+    pack_code = pack.code if pack else None
+    pack_label = pack.display_name if pack else "Mingrelian"
+
+    # SCENARIO 1: Translating TO low-resource language from high-resource language
+    if pack_code and target_lang == pack_code and source_lang in ["english", "georgian"]:
         # Try direct lookup first
         direct_match = check_exact_match_simple(input_text, source_lang, target_lang)
         if direct_match:
@@ -794,34 +1196,34 @@ def check_exact_match_with_google_translate(input_text: str, source_lang: str, t
         # exact-candidate collector so bridged variants can benefit from the
         # master lexicon without forcing an arbitrary ambiguous return.
         for translated_text, lang in translations_to_try:
-            exact_candidates = collect_exact_match_candidates(translated_text, lang, "mingrelian")
+            exact_candidates = collect_exact_match_candidates(translated_text, lang, pack_code)
             if len(exact_candidates) == 1:
                 match = exact_candidates[0]["target_text"]
                 logger.info(
-                    f"[GOOGLE BRIDGE TO MINGRELIAN] {input_text} ({source_lang}) → "
-                    f"{translated_text} ({lang}) → {match} (mingrelian)"
+                    f"[GOOGLE BRIDGE TO {pack_label.upper()}] {input_text} ({source_lang}) → "
+                    f"{translated_text} ({lang}) → {match} ({pack_code})"
                 )
                 return match
 
-            match = check_exact_match_simple(translated_text, lang, "mingrelian")
+            match = check_exact_match_simple(translated_text, lang, pack_code)
             if match:
                 logger.info(
-                    f"[GOOGLE BRIDGE TO MINGRELIAN] {input_text} ({source_lang}) → "
-                    f"{translated_text} ({lang}) → {match} (mingrelian)"
+                    f"[GOOGLE BRIDGE TO {pack_label.upper()}] {input_text} ({source_lang}) → "
+                    f"{translated_text} ({lang}) → {match} ({pack_code})"
                 )
                 return match
 
-    # SCENARIO 2: Translating FROM Mingrelian to high-resource language
-    elif source_lang == "mingrelian" and target_lang in ["english", "georgian"]:
+    # SCENARIO 2: Translating FROM low-resource language to high-resource language
+    elif pack_code and source_lang == pack_code and target_lang in ["english", "georgian"]:
         # Try direct lookup first
         direct_match = check_exact_match_simple(input_text, source_lang, target_lang)
         if direct_match:
             return direct_match
 
-        # Search for Mingrelian in ANY dictionary with ANY language pair
-        result = find_mingrelian_in_dicts(input_text, target_lang=target_lang)
+        # Search for the low-resource term in ANY dictionary with ANY language pair
+        result = find_low_resource_in_dicts(input_text, pack_id=pack_code, target_lang=target_lang)
         if result:
-            mingrelian_text, other_lang_text, lang_code = result
+            low_resource_text, other_lang_text, lang_code = result
 
             # If the found language IS the target, return directly
             lang_map = {"en": "english", "ka": "georgian", "ru": "russian"}
@@ -829,8 +1231,9 @@ def check_exact_match_with_google_translate(input_text: str, source_lang: str, t
 
             if found_lang == target_lang:
                 logger.info(
-                    "[DIRECT DICT MATCH] %s (mingrelian) → %s (%s)",
-                    mingrelian_text,
+                    "[DIRECT DICT MATCH] %s (%s) → %s (%s)",
+                    low_resource_text,
+                    pack_code,
                     other_lang_text,
                     target_lang,
                 )
@@ -847,8 +1250,10 @@ def check_exact_match_with_google_translate(input_text: str, source_lang: str, t
 
                 translated = GoogleTranslator(source=lang_code, target=target_code).translate(other_lang_text)
                 logger.info(
-                    "[GOOGLE BRIDGE FROM MINGRELIAN] %s (mingrelian) → %s (%s) → %s (%s)",
-                    mingrelian_text,
+                    "[GOOGLE BRIDGE FROM %s] %s (%s) → %s (%s) → %s (%s)",
+                    pack_label.upper(),
+                    low_resource_text,
+                    pack_code,
                     other_lang_text,
                     lang_code,
                     translated,

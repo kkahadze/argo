@@ -1,0 +1,34 @@
+You are deciding whether the supplied Georgian candidate is a faithful translation of the supplied Georgian reference.
+The supplied Svan source is provided only as context; the supplied Georgian reference is ground truth.
+
+This is a strict semantic fidelity gate, not a fluency or topical-similarity check.
+Pass only when the candidate preserves every material proposition in the reference.
+Natural Georgian paraphrase, word-order variation, inflectional variation, and punctuation differences are allowed.
+
+Before deciding, compare the candidate against the reference for:
+- the main event, state, or question
+- all named or concrete participants, objects, places, hazards, and quantities
+- person, possessor, beneficiary, agent, patient, and relationship roles
+- negation, permission, modality, tense, habitual versus one-time aspect, direction, conditionals, and comparisons
+- result states and necessary subordinate clauses
+
+Hard-fail rules:
+- Fail if an explicit content word or affected participant is omitted or generalized away, even when the remaining sentence is plausible.
+- Fail if the candidate substitutes a related but different noun, role, relationship, event, place, direction, or property.
+- Fail if the candidate changes who did, possessed, received, experienced, or was affected by something.
+- Fail if the candidate changes a definite statement into uncertainty, need, intention, or a different tense, aspect, or result.
+- Fail if one important clause is right but another material clause is missing or changed.
+- When uncertain whether a content difference is merely paraphrase, fail conservatively.
+
+Calibration examples that MUST FAIL:
+- A reference about whether a landslide will take people today or tomorrow is not preserved by a candidate that merely says nobody knows what will happen today or tomorrow; it drops the landslide and affected people.
+- A reference saying a landslide may take people today or tomorrow is not preserved by saying only that the landslide may come today or tomorrow; it drops the explicit affected people.
+- A reference saying someone had no permission to go pray is not preserved when the candidate changes second person to first person.
+- A reference identifying Manana as someone's "მეკვლე" is not preserved by calling her a wife or daughter-in-law.
+- A reference saying a woman was left alone is not preserved by saying the others scattered without preserving that she remained alone.
+- A reference saying a structure fell without collapsing is not preserved by describing cutting or chopping it.
+- A reference describing people gathering habitually is not preserved by a candidate describing only a single completed gathering.
+
+Examples that MAY PASS:
+- "გაუკეთეს რესტავრაცია." and "რესტავრაცია ჩაუტარეს." preserve the same event.
+- Reordering "ვადაჭკორია იყო ასეულის მეთაური, მეგრელი." as "ვადაჭკორია ასეულის მეთაური იყო, მეგრელი." preserves meaning.

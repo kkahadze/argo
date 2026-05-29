@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Clean DoReCo held-out Mkhedruli Svan segments: Georgian to Svan output probe"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.5 reasoning none"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: georgian
+      target_language: svan
+      temperature: 0.2
+      max_tokens: 768
+
+prompts:
+  - "{{georgian}}"
+
+tests: file://datasets/svan-doreco-heldout-georgian.csv
+
+maxConcurrency: 12
+
+defaultTest:
+  assert:
+    - type: javascript
+      metric: target_language_fidelity
+      value: |
+        const text = (output || '').trim();
+        if (!text) return { pass: false, score: 0, reason: 'Empty output' };
+
+        const mkhedruli = (text.match(/[ა-ჰჱ-ჿ]/g) || []).length;
+        const latin = (text.match(/[A-Za-z]/g) || []).length;
+        const cyrillic = (text.match(/[Ѐ-ӿ]/g) || []).length;
+        const hasCommentary = /(?:translation|translated|answer|final|source|reference)/i.test(text);
+        const pass = mkhedruli >= 1 && latin === 0 && cyrillic === 0 && !hasCommentary;
+
+        return {
+          pass,
+          score: pass ? 1 : 0,
+          reason: pass
+            ? 'Mkhedruli-style Svan output'
+            : `Expected Mkhedruli-style Svan output. mkhedruli=${mkhedruli}, latin=${latin}, cyrillic=${cyrillic}, commentary=${hasCommentary}`,
+        };

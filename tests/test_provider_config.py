@@ -117,7 +117,7 @@ class ProviderConfigTests(unittest.TestCase):
         )
         self.assertEqual(
             provider_config.VALID_LANGUAGES,
-            ("mingrelian", "georgian", "english"),
+            ("mingrelian", "tsova_tush", "svan", "georgian", "english"),
         )
         self.assertEqual(provider_config.DEFAULT_SOURCE_LANGUAGE, "mingrelian")
         self.assertEqual(provider_config.DEFAULT_TARGET_LANGUAGE, "english")
@@ -371,6 +371,53 @@ class ProviderConfigTests(unittest.TestCase):
         )
         self.assertIsNone(captured["reasoning_effort"])
         self.assertIsNone(captured["grammar_policy"])
+
+    def test_eval_provider_skips_temperature_for_reasoning_gpt5_by_default(self):
+        eval_provider = self._load_eval_provider_with_fake_dotenv()
+        captured = {}
+
+        class FakeLLMClient:
+            def __init__(
+                self,
+                provider,
+                api_key,
+                model,
+                temperature,
+                max_tokens,
+                reasoning_effort=None,
+            ):
+                captured["provider"] = provider
+                captured["model"] = model
+                captured["temperature"] = temperature
+                captured["reasoning_effort"] = reasoning_effort
+                self.model = model
+
+        def fake_translate(input_text, source_lang, target_lang, llm_client, grammar_policy=None):
+            return {
+                "translation": "ok",
+                "full_response": "full",
+                "response_source": "test",
+                "prompt_metrics": {"method": "test"},
+            }
+
+        with patch.object(eval_provider, "LLMClient", FakeLLMClient), patch.object(
+            eval_provider, "translate", fake_translate
+        ), patch.dict(os.environ, {"OPENAI_API_KEY": "openai-test-key"}, clear=True):
+            result = eval_provider.call_api(
+                "hello",
+                {
+                    "provider": "openai",
+                    "model": "gpt-5.5",
+                    "reasoning_effort": "xhigh",
+                },
+                {},
+            )
+
+        self.assertEqual(result["output"], "ok")
+        self.assertEqual(captured["provider"], "openai")
+        self.assertEqual(captured["model"], "gpt-5.5")
+        self.assertIsNone(captured["temperature"])
+        self.assertEqual(captured["reasoning_effort"], "xhigh")
 
 
 if __name__ == "__main__":

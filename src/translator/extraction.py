@@ -60,7 +60,7 @@ def _fallback_translation_line(
     if not lines:
         return None
 
-    if target_language in {"mingrelian", "georgian"}:
+    if target_language in {"mingrelian", "tsova_tush", "svan", "georgian"}:
         for line in reversed(lines):
             if len(line) > 180:
                 continue

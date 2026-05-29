@@ -16,8 +16,8 @@ from src.provider_config import (
     get_default_reasoning_effort_for_model,
 )
 
-# Load environment variables
-load_dotenv()
+# Load repo-local credentials even when a stale shell export exists.
+load_dotenv(override=True)
 
 class LLMClient:
     """
@@ -30,7 +30,7 @@ class LLMClient:
         provider: LLMProvider = DEFAULT_PROVIDER,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
-        temperature: float = 1.0,
+        temperature: Optional[float] = 1.0,
         max_tokens: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
     ):

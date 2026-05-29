@@ -8,6 +8,8 @@ from typing import Optional
 
 LANG_LABEL = {
     "mingrelian": "Mingrelian",
+    "tsova_tush": "Bats",
+    "svan": "Svan",
     "english": "English",
     "georgian": "Georgian",
 }
@@ -163,20 +165,21 @@ def _format_token_candidate_block(
     token: str,
     source_lang: str,
     candidates: list[dict[str, str]],
+    target_label: str = "Mingrelian",
 ) -> str:
     """Format a small candidate list for a single source token."""
     source_label = LANG_LABEL.get(source_lang, source_lang)
     lines = [
-        f'Candidate translations for token "{token}" ({source_label} → Mingrelian):',
+        f'Candidate translations for token "{token}" ({source_label} → {target_label}):',
         "Treat these as lexicon candidates for this token, not as a full-sentence translation.",
         "",
     ]
 
     for index, candidate in enumerate(candidates[:6], start=1):
         lines.append(f"Candidate {index}:")
-        lines.append(f"- Mingrelian: {candidate['target_text']}")
+        lines.append(f"- {target_label}: {candidate['target_text']}")
         if candidate.get("headword_raw"):
-            lines.append(f"- Mingrelian (Latinized): {candidate['headword_raw']}")
+            lines.append(f"- {target_label} (Latinized): {candidate['headword_raw']}")
         if candidate.get("translation"):
             lines.append(f"- Gloss: {candidate['translation']}")
         if candidate.get("matched_on"):

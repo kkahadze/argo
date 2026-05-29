@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Svan baseline rerun: original retrieval with current Tuite grammar, clean DoReCo held-out Mkhedruli Svan to Georgian, GPT-5.5 reasoning none"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.5 reasoning none - original retrieval + Tuite"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: svan
+      target_language: georgian
+      temperature: 0.2
+      max_tokens: 768
+      timeout: 300000
+
+prompts:
+  - "{{svan}}"
+
+tests: file://datasets/svan-doreco-heldout-georgian.csv
+
+maxConcurrency: 32
+
+defaultTest: file://assertions/svan-doreco-georgian-strict.yaml

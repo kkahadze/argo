@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "DoReCo held-out Svan segments: Svan to English"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.5 reasoning none"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: svan
+      target_language: english
+      temperature: 0.2
+      max_tokens: 768
+
+prompts:
+  - "{{svan}}"
+
+tests: file://datasets/svan-doreco-heldout-english.csv
+
+maxConcurrency: 12
+
+defaultTest:
+  assert:
+    - type: javascript
+      metric: target_language_fidelity
+      value: |
+        const text = (output || '').trim();
+        if (!text) return { pass: false, score: 0, reason: 'Empty output' };
+
+        const latin = (text.match(/[A-Za-z]/g) || []).length;
+        const georgian = (text.match(/[ა-ჰჱ-ჿ]/g) || []).length;
+        const cyrillic = (text.match(/[Ѐ-ӿ]/g) || []).length;
+        const hasCommentary = /(?:translation|translated|answer|final|source|reference)/i.test(text);
+        const pass = latin >= 1 && georgian === 0 && cyrillic === 0 && !hasCommentary;
+
+        return {
+          pass,
+          score: pass ? 1 : 0,
+          reason: pass
+            ? 'English-only translation output'
+            : `Expected English-only output. latin=${latin}, georgian=${georgian}, cyrillic=${cyrillic}, commentary=${hasCommentary}`,
+        };
+    - type: llm-rubric
+      provider: openai:gpt-5-mini
+      metric: semantic_accuracy
+      threshold: 0.8
+      value: |
+        You are grading a held-out DoReCo Svan-to-English translation.
+
+        Grade semantic correctness, not literal string match. The DoReCo reference is an English free translation.
+        Pass if the output preserves the meaning of the Svan source and is a natural English rendering.
+        Be tolerant of natural paraphrase, discourse particles, light transcription noise, and punctuation differences.
+
+        Require:
+        - preservation of named entities, numbers, and explicit relationships
+        - preservation of the core event, statement, or question
+        - no invented facts or meaning reversals
+        - no omission of important clauses in longer segments
+
+        Fail if the output is commentary, mostly non-English, or only loosely related to the reference.
+
+        Source Svan transcription: {{svan}}
+        Reference English free translation: {{english}}
+        DoReCo reference: {{doreco_ref}}
+        Length bucket: {{length_bucket}}

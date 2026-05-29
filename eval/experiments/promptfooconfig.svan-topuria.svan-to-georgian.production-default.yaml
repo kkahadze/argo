@@ -1,0 +1,88 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Experiment E1: Topuria Svan to Georgian with production-default grammar omission"
+
+providers:
+  - id: file://../provider.py
+    label: "E1 GPT-5.5 none - production-default no grammar - Svan to Georgian"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: svan
+      target_language: georgian
+      temperature: 0
+      max_tokens: 256
+      timeout: 300000
+
+prompts:
+  - "{{svan}}"
+
+tests: file://../datasets/svan-topuria-conversation-heldout.csv
+
+maxConcurrency: 11
+
+defaultTest:
+  assert:
+    - type: javascript
+      metric: target_language_fidelity
+      value: |
+        const text = String(output || '').trim();
+        if (!text) return { pass: false, score: 0, reason: 'Empty output' };
+
+        const georgian = (text.match(/[ა-ჰჱ-ჿ]/g) || []).length;
+        const latin = (text.match(/\p{Script=Latin}/gu) || []).length;
+        const cyrillic = (text.match(/[Ѐ-ӿ]/g) || []).length;
+        const corrupt = (text.match(/[£¢™ƒ�]/g) || []).length;
+        const hasCommentary = /(?:translation|translated|answer|final|source|reference)/i.test(text);
+        const pass = georgian >= 1 && latin === 0 && cyrillic === 0 && corrupt === 0 && !hasCommentary;
+
+        return {
+          pass,
+          score: pass ? 1 : 0,
+          reason: pass
+            ? 'Clean Georgian-script translation output'
+            : `Expected clean Georgian output. georgian=${georgian}, latin=${latin}, cyrillic=${cyrillic}, corrupt=${corrupt}, commentary=${hasCommentary}`,
+        };
+    - type: javascript
+      metric: critical_meaning_features
+      value: |
+        const text = String(output || '').normalize('NFC');
+        const id = String(context.vars.source_id || '');
+        const missing = [];
+
+        if (id.endsWith('we-are-fine') && !/ვართ/u.test(text)) {
+          missing.push('first-person plural reply');
+        }
+        if (id.endsWith('how-are-you-all') && !/ხართ/u.test(text)) {
+          missing.push('second-person plural addressee');
+        }
+        if (id.endsWith('how-old-are-you-all')) {
+          if (!/ხართ/u.test(text)) missing.push('second-person plural age question');
+          if (!/(?:თითო|თითოეული)/u.test(text)) missing.push('distributive age question');
+        }
+
+        const pass = missing.length === 0;
+        return {
+          pass,
+          score: pass ? 1 : 0,
+          reason: pass ? 'Critical number and distributive features preserved' : `Missing ${missing.join(', ')}`,
+        };
+    - type: llm-rubric
+      provider: openai:gpt-5.4-mini
+      metric: semantic_accuracy
+      threshold: 0.8
+      value: |
+        Grade a short Svan-to-Georgian conversational translation against an external
+        published Topuria reference that is not loaded into the translation corpus.
+        The Georgian reference is ground truth.
+
+        Pass only if the candidate preserves the same speech act and content:
+        person/number, question versus reply, greeting time of day, and age/name/
+        location meaning. Natural Georgian synonyms and punctuation variation are
+        allowed. Fail untranslated Svan, commentary, wrong person/number, or a
+        different greeting/question.
+
+        Source Svan: {{svan}}
+        Reference Georgian: {{georgian}}
+        Category: {{category}}
+        Evidence: {{evidence}}

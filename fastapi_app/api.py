@@ -27,6 +27,11 @@ from src.provider_config import (
     get_default_reasoning_effort_for_model,
     is_server_key_model_allowed,
 )
+from src.language_packs import (
+    get_language_pack,
+    get_low_resource_pack_for_pair,
+    is_supported_translation_pair,
+)
 from src.single_call_translator import translate as single_call_translate
 from src.logger import (
     setup_logger,
@@ -54,7 +59,7 @@ class PromptIn(BaseModel):
     visitor_id: Optional[str] = None  # Anonymous browser identifier for analytics only
 
 # Initialize FastAPI app
-app = FastAPI(title="Mingrelian Translator API")
+app = FastAPI(title="Argo Translator API")
 
 # Setup logger
 logger = setup_logger('api')
@@ -163,17 +168,25 @@ def format_output_for_legacy(result, source_lang, target_lang, source_text):
     Returns:
         dict: Formatted result with legacy fields populated
     """
+    target_pack = get_low_resource_pack_for_pair(source_lang, target_lang)
     translation = result['translation']
+    if target_pack and target_lang == target_pack.code:
+        translation = target_pack.normalize_output(translation)
     full_response = result['full_response']
     
     # Initialize all fields
     output = {
         'source_text': source_text,
         'target_text': translation,
+        'translated_text': translation,
+        'romanized_text': '',
         'source_language': source_lang,
         'target_language': target_lang,
         'mingrelian_latinized': '',
         'mingrelian_mkhedruli': '',
+        'tsova_tush_latinized': '',
+        'tsova_tush_mkhedruli': '',
+        'svan': '',
         'georgian': '',
         'english': '',
         'full_response': full_response
@@ -203,6 +216,54 @@ def format_output_for_legacy(result, source_lang, target_lang, source_text):
             output['english'] = source_text
         elif source_lang == 'georgian':
             output['georgian'] = source_text
+        output['romanized_text'] = (
+            output['mingrelian_latinized']
+            if output['mingrelian_latinized']
+            else ''
+        )
+
+    elif source_lang == 'tsova_tush':
+        if is_mkhedruli(source_text):
+            output['tsova_tush_mkhedruli'] = source_text
+        else:
+            output['tsova_tush_latinized'] = source_text
+
+        if target_lang == 'english':
+            output['english'] = translation
+        elif target_lang == 'georgian':
+            output['georgian'] = translation
+
+    elif target_lang == 'tsova_tush':
+        if is_mkhedruli(translation):
+            output['tsova_tush_mkhedruli'] = translation
+        else:
+            output['tsova_tush_latinized'] = translation
+
+        if source_lang == 'english':
+            output['english'] = source_text
+        elif source_lang == 'georgian':
+            output['georgian'] = source_text
+        output['romanized_text'] = (
+            output['tsova_tush_latinized']
+            if output['tsova_tush_latinized']
+            else ''
+        )
+
+    elif source_lang == 'svan':
+        output['svan'] = source_text
+
+        if target_lang == 'english':
+            output['english'] = translation
+        elif target_lang == 'georgian':
+            output['georgian'] = translation
+
+    elif target_lang == 'svan':
+        output['svan'] = translation
+
+        if source_lang == 'english':
+            output['english'] = source_text
+        elif source_lang == 'georgian':
+            output['georgian'] = source_text
     
     else:
         # Neither source nor target is mingrelian (georgian <-> english)
@@ -212,7 +273,11 @@ def format_output_for_legacy(result, source_lang, target_lang, source_text):
         elif source_lang == 'georgian':
             output['georgian'] = source_text
             output['english'] = translation
-    
+
+    if target_lang in {'mingrelian', 'tsova_tush', 'svan'} and not output['romanized_text']:
+        if not is_mkhedruli(translation):
+            output['romanized_text'] = translation
+
     return output
 
 
@@ -235,8 +300,8 @@ async def stream_translation(
     Args:
         prompt_text: Text to translate
         api_key: API key for the LLM provider (optional if the server has a provider key configured)
-        source_language: Source language ("mingrelian", "georgian", or "english")
-        target_language: Target language ("mingrelian", "georgian", or "english")
+        source_language: Source language ("mingrelian", "tsova_tush", "georgian", or "english")
+        target_language: Target language ("mingrelian", "tsova_tush", "georgian", or "english")
         provider: "openai", "anthropic", or "gemini" (if None, reads from LLM_PROVIDER env var, defaults to "openai")
         model: Optional model name (if None, reads from LLM_MODEL env var, then uses provider default)
         reasoning_effort: Optional OpenAI reasoning effort for GPT-5 family models
@@ -390,13 +455,13 @@ async def stream_translation(
 @app.post("/chat")
 async def chat(data: PromptIn, request: Request):
     """
-    Process text translation between Mingrelian, Georgian, and English.
+    Process text translation between Mingrelian, Bats, Georgian, and English.
     
     Parameters:
     - prompt: Text to translate
     - api_key: API key for the LLM provider (optional if the server has a provider key configured)
-    - source_language: Source language ("mingrelian", "georgian", or "english")
-    - target_language: Target language ("mingrelian", "georgian", or "english")
+    - source_language: Source language ("mingrelian", "tsova_tush", "georgian", or "english")
+    - target_language: Target language ("mingrelian", "tsova_tush", "georgian", or "english")
     - provider: LLM provider to use ("openai", "anthropic", or "gemini")
     - model: Optional model name (uses provider default if None)
     - reasoning_effort: Optional OpenAI reasoning effort for GPT-5 family models
@@ -423,6 +488,11 @@ async def chat(data: PromptIn, request: Request):
         raise HTTPException(status_code=400, detail=f"Target language must be one of: {', '.join(VALID_LANGUAGES)}")
     if data.source_language == data.target_language:
         raise HTTPException(status_code=400, detail="Source and target languages must be different")
+    if not is_supported_translation_pair(data.source_language, data.target_language):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Translation pair not supported yet: {data.source_language} -> {data.target_language}",
+        )
 
     visitor_id = normalize_visitor_id(data.visitor_id)
     

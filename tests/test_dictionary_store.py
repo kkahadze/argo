@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src import dictionary_store
-from src.dictionary_store import get_dictionary_store
+from src.dictionary_store import get_dictionary_store, is_standalone_match
 from src.single_call_translator import (
     check_exact_match_simple,
     collect_exact_match_candidates,
@@ -51,7 +51,8 @@ class DictionaryStoreTests(unittest.TestCase):
             "english\tmingrelian\thello\tგომორძგუა\n"
             "english\tmingrelian\twhat is your name?\tსი მუ რჯოხო?\n"
             "english\tmingrelian\twhat is your name\tსი მუ რჯოხო?\n"
-            "english\tgeorgian\twhat language is this\tრა ენაა ეს\n",
+            "english\tgeorgian\twhat language is this\tრა ენაა ეს\n"
+            "georgian\tmingrelian\t\"გრძელი\nტექსტი\"\t\"მრავალხაზიანი\nპასუხი\"\n",
             encoding="utf-8",
         )
         (self.data_dir / "context_source.txt").write_text("", encoding="utf-8")
@@ -98,6 +99,10 @@ class DictionaryStoreTests(unittest.TestCase):
             check_exact_match_simple("what is your name", "english", "mingrelian"),
             "სი მუ რჯოხო?",
         )
+        self.assertEqual(
+            check_exact_match_simple("გრძელი\nტექსტი", "georgian", "mingrelian"),
+            "მრავალხაზიანი\nპასუხი",
+        )
         self.assertIsNone(
             check_exact_match_simple("what language is this", "english", "mingrelian")
         )
@@ -117,6 +122,11 @@ class DictionaryStoreTests(unittest.TestCase):
         self.assertTrue(kk_has_standalone)
         self.assertIn("Mingrelian: აბაზი", kk_output)
         self.assertIn("Russian primary meaning: двугривенный, двадцать копеек", kk_output)
+
+    def test_standalone_match_does_not_treat_combining_marks_as_word_boundaries(self):
+        self.assertFalse(is_standalone_match("ლერსგუ̂ნა̈ჲ", "ნაჲ"))
+        self.assertTrue(is_standalone_match("ნაჲ", "ნაჲ"))
+        self.assertTrue(is_standalone_match("ნუმ(უ)", "ნუმუ"))
 
 
 if __name__ == "__main__":

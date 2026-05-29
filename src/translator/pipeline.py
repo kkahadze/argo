@@ -29,6 +29,10 @@ from src.translator.prompts import (
     _measure_prompt_sections,
     _normalize_grammar_policy,
 )
+from src.language_packs import (
+    get_low_resource_pack_for_pair,
+    is_supported_translation_pair,
+)
 
 logger = setup_logger('translator')
 
@@ -51,11 +55,23 @@ def translate(
     Returns:
         dict: Translation results with keys: translation, full_response
     """
+    if not is_supported_translation_pair(source_lang, target_lang):
+        raise ValueError(f"Unsupported translation direction: {source_lang} → {target_lang}")
+
     overall_start = time.time()
     exact_candidates_block = ""
     skip_word_lookups = False
     instant_lookup_method = ""
     master_lexicon_enabled = _master_lexicon_enabled()
+    target_pack = get_low_resource_pack_for_pair(source_lang, target_lang)
+    if (
+        grammar_policy is None
+        and target_pack
+        and target_pack.code == "svan"
+        and source_lang == "svan"
+        and target_lang == "georgian"
+    ):
+        grammar_policy = "none"
     resolved_grammar_policy = _normalize_grammar_policy(grammar_policy)
 
     # OPTIMIZATION 1: Resolve exact full-input candidates before broader bridge logic.
@@ -83,6 +99,8 @@ def translate(
     log_stage_timing(logger, "Exact Match Resolution", time.time() - stage_start)
 
     if exact_match is not None:
+        if target_pack and target_lang == target_pack.code:
+            exact_match = target_pack.normalize_output(exact_match)
         log_stage_timing(logger, "TOTAL (instant lookup)", time.time() - overall_start, "✅ No LLM call")
         logger.info(f"Instant lookup: '{input_text}' ({source_lang}) → '{exact_match}' ({target_lang})")
         log_instant_lookup(logger, input_text, exact_match, instant_lookup_method or "exact_lexicon")
@@ -172,7 +190,10 @@ def translate(
         skip_word_lookups=skip_word_lookups,
         grammar_policy=resolved_grammar_policy,
     )
-    prompt_section_metrics = _measure_prompt_sections(prompt)
+    prompt_section_metrics = _measure_prompt_sections(
+        prompt,
+        grammar_marker=target_pack.grammar_heading if target_pack else None,
+    )
     prompt_metrics = {
         'reason': 'llm',
         'used_llm': True,
@@ -202,6 +223,8 @@ def translate(
     # Extract the translation
     stage_start = time.time()
     translation = extract_translation(response, target_language=target_lang)
+    if target_pack and target_lang == target_pack.code:
+        translation = target_pack.normalize_output(translation)
     log_stage_timing(logger, "Response Extraction", time.time() - stage_start)
 
     total_time = time.time() - overall_start

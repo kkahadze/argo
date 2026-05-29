@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Svan current directional flow: source-side retrieval without default grammar, clean DoReCo held-out Mkhedruli Svan to Georgian, GPT-5.5 reasoning none"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.5 reasoning none - current Svan to Georgian directional flow"
+    config:
+      provider: openai
+      model: gpt-5.5
+      reasoning_effort: none
+      source_language: svan
+      target_language: georgian
+      max_tokens: 768
+      timeout: 300000
+
+prompts:
+  - "{{svan}}"
+
+tests: file://datasets/svan-doreco-heldout-georgian.csv
+
+maxConcurrency: 32
+
+defaultTest: file://assertions/svan-doreco-georgian-strict.yaml
