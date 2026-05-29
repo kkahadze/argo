@@ -317,3 +317,19 @@ def _load_compact_grammar(path: Optional[str] = None, pack_id: str = DEFAULT_PAC
         return _load_grammar_cached(path, mtime_ns)
     except FileNotFoundError:
         return ""
+
+
+def _load_grammar_variant(variant: str, pack_id: str = DEFAULT_PACK_ID) -> str:
+    """Load a named generated grammar variant, falling back to the canonical grammar."""
+    pack = get_language_pack(_normalize_pack_id(pack_id))
+    filename = {
+        "mkhedruli": pack.mkhedruli_grammar_filename,
+        "ipa": pack.ipa_grammar_filename,
+    }.get(variant)
+    if not filename:
+        return _load_grammar(pack_id=pack_id)
+    path, mtime_ns = _data_file_cache_key(filename, pack_id)
+    try:
+        return _load_grammar_cached(path, mtime_ns)
+    except FileNotFoundError:
+        return ""

@@ -35,6 +35,8 @@ class LanguagePack:
     canonicalize_lookup_target: Callable[[str], str]
     grammar_filename: str = "harris.txt"
     compact_grammar_filename: str = "harris_compact.txt"
+    mkhedruli_grammar_filename: str | None = None
+    ipa_grammar_filename: str | None = None
 
 
 LANGUAGE_PACKS: Final[dict[str, LanguagePack]] = {
@@ -71,6 +73,8 @@ LANGUAGE_PACKS: Final[dict[str, LanguagePack]] = {
         canonicalize_lookup_target=_identity,
         grammar_filename="tuite.txt",
         compact_grammar_filename="tuite_compact.txt",
+        mkhedruli_grammar_filename="tuite_mkhedruli.txt",
+        ipa_grammar_filename="tuite_ipa.txt",
     ),
 }
 

@@ -23,6 +23,7 @@ _LOAD_GAL_ROWS = _data._load_gal_rows
 _LOAD_GAL_ROWS_CACHED = _data._load_gal_rows_cached
 _LOAD_COMPACT_GRAMMAR = _data._load_compact_grammar
 _LOAD_GRAMMAR = _data._load_grammar
+_LOAD_GRAMMAR_VARIANT = _data._load_grammar_variant
 _LOAD_GRAMMAR_CACHED = _data._load_grammar_cached
 _LOAD_KK_ROWS = _data._load_kk_rows
 _LOAD_KK_ROWS_CACHED = _data._load_kk_rows_cached
@@ -128,6 +129,7 @@ def _sync_compat_state() -> None:
     _data._load_gal_rows_cached = _load_gal_rows_cached
     _data._load_compact_grammar = _load_compact_grammar
     _data._load_grammar = _load_grammar
+    _data._load_grammar_variant = _load_grammar_variant
     _data._load_grammar_cached = _load_grammar_cached
     _data._load_kk_rows = _load_kk_rows
     _data._load_kk_rows_cached = _load_kk_rows_cached
@@ -188,6 +190,7 @@ def _sync_compat_state() -> None:
     _prompts._format_exact_candidate_block = _format_exact_candidate_block
     _prompts._load_compact_grammar = _load_compact_grammar
     _prompts._load_grammar = _load_grammar
+    _prompts._load_grammar_variant = _load_grammar_variant
     _prompts._load_grammar_for_policy = _load_grammar_for_policy
     _prompts._measure_prompt_sections = _measure_prompt_sections
     _prompts._normalize_grammar_policy = _normalize_grammar_policy
@@ -301,6 +304,11 @@ def _load_grammar(*args, **kwargs):
 def _load_compact_grammar(*args, **kwargs):
     _sync_compat_state()
     return _LOAD_COMPACT_GRAMMAR(*args, **kwargs)
+
+
+def _load_grammar_variant(*args, **kwargs):
+    _sync_compat_state()
+    return _LOAD_GRAMMAR_VARIANT(*args, **kwargs)
 
 
 _load_master_lexicon_rows_cached.cache_clear = _LOAD_MASTER_LEXICON_ROWS_CACHED.cache_clear

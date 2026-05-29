@@ -13,6 +13,7 @@ except ImportError:
 from src.logger import setup_logger
 from src.dictionary_store import get_dictionary_store
 from src.language_packs import get_low_resource_pack_for_pair
+from src.morphology import MorphologyAnalysis, get_morphology_analyzer
 
 from src.translator.data import (
     _load_context_source_entries,
@@ -35,6 +36,7 @@ from src.translator.text_utils import (
 
 logger = setup_logger('translator')
 MAX_RETRIEVAL_CONTEXT_CHARS = int(os.getenv("ARGO_MAX_RETRIEVAL_CONTEXT_CHARS", "8000"))
+MAX_MORPHOLOGY_EVIDENCE_CHARS = int(os.getenv("ARGO_MAX_MORPHOLOGY_EVIDENCE_CHARS", "2400"))
 
 
 def _pack_for_pair(source_lang: str, target_lang: str):
@@ -337,6 +339,7 @@ def _build_high_resource_to_low_resource_dict_entries(
     lookup_fn: Callable[[str], str],
     pack_id: str,
     target_label: str,
+    include_parallel_pairs: bool = False,
 ) -> str:
     """Build higher-signal prompt context for English/Georgian -> one target pack."""
     lookup_sentence = sentence
@@ -366,6 +369,16 @@ def _build_high_resource_to_low_resource_dict_entries(
     ]
 
     for token in tokens:
+        parallel_evidence = (
+            grep_search_parallel_pairs(
+                token,
+                source_language=lookup_source_lang,
+                pack_id=pack_id,
+                max_rows=2,
+            )
+            if include_parallel_pairs
+            else ""
+        )
         exact_candidates = _collect_token_exact_candidates(token, lookup_source_lang, pack_id)
         if exact_candidates:
             blocks.append(
@@ -376,15 +389,21 @@ def _build_high_resource_to_low_resource_dict_entries(
                     target_label=target_label,
                 )
             )
+            if parallel_evidence:
+                blocks.append(parallel_evidence)
             continue
 
-        if _is_low_value_lookup_term(token, lookup_source_lang, len(tokens)):
+        if parallel_evidence:
+            blocks.append(parallel_evidence)
+        elif _is_low_value_lookup_term(token, lookup_source_lang, len(tokens)):
             continue
 
         token_lookup = effective_lookup_fn(token)
         if token_lookup and token_lookup.strip():
             blocks.append(token_lookup)
 
+    if include_parallel_pairs:
+        return _join_ranked_context(blocks)
     return "\n".join(block.strip() for block in blocks if block and block.strip())
 
 
@@ -417,6 +436,7 @@ def _build_high_resource_to_svan_dict_entries(
         lookup_fn=lookup_fn,
         pack_id="svan",
         target_label="Svan",
+        include_parallel_pairs=True,
     )
 
 
@@ -432,9 +452,15 @@ def _build_svan_to_georgian_dict_entries(
         if word.strip(string.punctuation + "“”„’'\"")
     ]
     exact_blocks: list[str] = []
-    fallback_blocks: list[str] = []
+    fallback_blocks = [grep_search_morphology(sentence, pack_id="svan")]
 
     for token in tokens:
+        parallel_evidence = grep_search_parallel_pairs(
+            token,
+            source_language="svan",
+            pack_id="svan",
+            max_rows=2,
+        )
         exact_candidates = _collect_token_exact_candidates(token, "svan", "georgian")
         if exact_candidates:
             exact_blocks.append(
@@ -445,6 +471,15 @@ def _build_svan_to_georgian_dict_entries(
                     target_label="Georgian",
                 )
             )
+            if parallel_evidence:
+                fallback_blocks.append(parallel_evidence)
+            continue
+        morphology_evidence = grep_search_morphology(token, pack_id="svan")
+        if parallel_evidence:
+            fallback_blocks.append(parallel_evidence)
+        if morphology_evidence:
+            fallback_blocks.append(morphology_evidence)
+        if parallel_evidence or morphology_evidence:
             continue
         if _is_low_value_lookup_term(token, "svan", len(tokens)):
             continue
@@ -453,6 +488,20 @@ def _build_svan_to_georgian_dict_entries(
             fallback_blocks.append(token_lookup)
 
     return _join_ranked_context(exact_blocks + fallback_blocks)
+
+
+def _build_svan_to_english_dict_entries(
+    sentence: str,
+    *,
+    lookup_fn: Callable[[str], str],
+) -> str:
+    """Keep reviewed multiword morphology cells intact before token-level lookup."""
+    blocks = [grep_search_morphology(sentence, pack_id="svan")]
+    for word in sentence.split():
+        cleaned_word = word.strip(string.punctuation)
+        if cleaned_word:
+            blocks.append(lookup_fn(cleaned_word))
+    return _join_ranked_context(blocks)
 
 
 def grep_search_pairs(
@@ -541,6 +590,86 @@ def grep_search_context_source(
     elif (not standalone_only) and substring_output != LOOKUP_SEPARATOR:
         return _truncate_lookup_output(substring_output)
     return ""
+
+
+def grep_search_parallel_pairs(
+    word: str,
+    *,
+    source_language: str,
+    pack_id: str = "svan",
+    max_rows: int = 3,
+) -> str:
+    """Retrieve audited Georgian parallel examples without making them exact overrides."""
+    result = get_dictionary_store(pack_id).search_parallel_pairs(
+        word,
+        source_language=source_language,
+        max_rows=max_rows,
+    )
+    return _truncate_lookup_output(result.output)
+
+
+def grep_search_morphology(word: str, *, pack_id: str) -> str:
+    """Retrieve bounded pack-specific morphology evidence and attested lemma entries."""
+    if (
+        pack_id == "svan"
+        and os.getenv("ARGO_ENABLE_SVAN_MORPHOLOGY", "1").strip().lower()
+        in {"0", "false", "no", "off"}
+    ):
+        return ""
+    analyzer = get_morphology_analyzer(pack_id)
+    if analyzer is None:
+        return ""
+    analyses = analyzer.analyze(word)
+    if not analyses:
+        return ""
+
+    output_parts = [f"\nMorphology evidence for {word}:\n"]
+    store = get_dictionary_store(pack_id)
+    emitted_lemma_entries: set[str] = set()
+    lemma_entries_by_related_form: dict[str, tuple[str, ...]] = {}
+    for analysis in analyses[:6]:
+        related_form = analysis.related_form
+        lemma_entries: tuple[str, ...] = ()
+        if related_form:
+            lemma_entries = lemma_entries_by_related_form.setdefault(
+                related_form,
+                tuple(
+                    result.output
+                    for result in (
+                        store.search_sentence_low_resource(related_form, standalone_only=True),
+                        store.search_gal_low_resource(related_form, standalone_only=True),
+                        store.search_kk_low_resource(related_form, standalone_only=True),
+                    )
+                    if result.output
+                ),
+            )
+        if analysis.evidence_type == "Attested Topuria-Kaldani variant" and not lemma_entries:
+            continue
+        output_parts.append(_format_morphology_analysis(analysis))
+        if not related_form or related_form in emitted_lemma_entries:
+            continue
+        emitted_lemma_entries.add(related_form)
+        output_parts.extend(lemma_entries)
+
+    if len(output_parts) == 1:
+        return ""
+    return _truncate_lookup_output("".join(output_parts)[:MAX_MORPHOLOGY_EVIDENCE_CHARS])
+
+
+def _format_morphology_analysis(analysis: MorphologyAnalysis) -> str:
+    lines = [
+        LOOKUP_SEPARATOR.rstrip(),
+        f"Evidence type: {analysis.evidence_type}",
+        f"Surface form: {analysis.surface}",
+    ]
+    if analysis.related_form:
+        lines.append(f"Related lexicon-attested form: {analysis.related_form}")
+    if analysis.source_id:
+        lines.append(f"SOURCE: {analysis.source_id}")
+    if analysis.confidence:
+        lines.append(f"Confidence: {analysis.confidence}")
+    lines.extend(f"{label}: {value}" for label, value in analysis.details if value)
+    return "\n".join(lines) + "\n"
 
 
 def grep_search_from_english(word: str) -> str:
@@ -746,10 +875,14 @@ def _grep_search_from_low_resource(word: str, pack_id: str, display_name: str) -
         context_source_result = grep_search_context_source(word, pack_id=pack_id)
         output += context_source_result
 
+    if pack_id == "svan" and not (pairs_result or gal_result or kk_result or context_source_result):
+        output += grep_search_morphology(word, pack_id=pack_id)
+        return _truncate_lookup_output(output)
+
     # If absolutely nothing matched across all four sources, try a conservative
     # case-suffix stripping fallback (e.g., ...თ → stem).
     case_fallback_applied = False
-    if not (pairs_result or gal_result or kk_result or context_source_result):
+    if pack_id == "mingrelian" and not (pairs_result or gal_result or kk_result or context_source_result):
         for stem in _case_strip_candidates_mkhedruli(word):
             # First: standalone-only search. If we find any standalone match for this
             # candidate, we return ONLY standalone matches and stop (no partial matches,
@@ -786,7 +919,9 @@ def _grep_search_from_low_resource(word: str, pack_id: str, display_name: str) -
 
     # If we STILL have no hits, assume this might be a verb with a preverb attached
     # and try stripping a simple preverb.
-    if not (pairs_result or gal_result or kk_result or context_source_result or case_fallback_applied):
+    if pack_id == "mingrelian" and not (
+        pairs_result or gal_result or kk_result or context_source_result or case_fallback_applied
+    ):
         for stem in _preverb_strip_candidates_mkhedruli(word):
             # Prefer standalone-only results for the stripped stem.
             pairs2_s, pairs2_has_s = grep_search_pairs(stem, standalone_only=True, pack_id=pack_id)
@@ -848,7 +983,7 @@ def _grep_search_from_svan_source(word: str) -> str:
         if context_result:
             output_parts.append(context_result)
     if not output_parts:
-        return ""
+        return grep_search_morphology(word, pack_id="svan")
     return _truncate_lookup_output(f"\nResults for {word}:\n" + "".join(output_parts))
 
 

@@ -5,12 +5,16 @@ import os
 import string
 from typing import Callable, Optional
 
-from src.translator.data import _load_compact_grammar, _load_grammar
+from src.translator.data import _load_compact_grammar, _load_grammar, _load_grammar_variant
 from src.translator.lookup import (
     _build_high_resource_to_mingrelian_dict_entries,
     _build_high_resource_to_svan_dict_entries,
     _build_high_resource_to_tsova_tush_dict_entries,
+    _build_svan_to_english_dict_entries,
     _build_svan_to_georgian_dict_entries,
+    _join_ranked_context,
+    grep_search_context_source,
+    grep_search_parallel_pairs,
     grep_search_from_english,
     grep_search_from_english_for_pack,
     grep_search_from_georgian,
@@ -20,7 +24,7 @@ from src.translator.lookup import (
 from src.translator.text_utils import LANG_LABEL
 from src.language_packs import get_low_resource_pack_for_pair
 
-SUPPORTED_GRAMMAR_POLICIES = {"full", "compact", "none"}
+SUPPORTED_GRAMMAR_POLICIES = {"full", "compact", "none", "full_mkhedruli", "full_ipa"}
 
 
 def _normalize_grammar_policy(grammar_policy: Optional[str] = None) -> str:
@@ -41,6 +45,10 @@ def _load_grammar_for_policy(
         return ""
     if policy == "compact":
         return _load_compact_grammar(pack_id=pack_id)
+    if policy == "full_mkhedruli":
+        return _load_grammar_variant("mkhedruli", pack_id=pack_id)
+    if policy == "full_ipa":
+        return _load_grammar_variant("ipa", pack_id=pack_id)
     return _load_grammar(pack_id=pack_id)
 
 
@@ -142,6 +150,9 @@ def _build_dict_entries(
     """Build dictionary entries by looking up each word in the sentence."""
     if input_lang == "svan" and output_lang == "georgian":
         return _build_svan_to_georgian_dict_entries(sentence, lookup_fn=lookup_fn)
+
+    if input_lang == "svan" and output_lang == "english":
+        return _build_svan_to_english_dict_entries(sentence, lookup_fn=lookup_fn)
 
     if output_lang in {"mingrelian", "tsova_tush", "svan"} and input_lang in {"english", "georgian"}:
         builder = {
@@ -254,6 +265,7 @@ def _construct_prompt(
     output_lang: str,
     lookup_fn: Callable[[str], str],
     exact_candidates_block: str = "",
+    direct_evidence: str = "",
     skip_word_lookups: bool = False,
     grammar_policy: Optional[str] = None,
 ) -> str:
@@ -274,6 +286,8 @@ def _construct_prompt(
         output_lang=output_lang,
         lookup_fn=lookup_fn,
     )
+    if direct_evidence.strip():
+        dict_entries = direct_evidence + dict_entries
 
     # Only load grammar when retrieval context exists. The grammar policy selects
     # full Harris, compact translator notes, or no grammar context.
@@ -499,12 +513,27 @@ def construct_prompt_from_georgian_to_svan(
     grammar_policy: Optional[str] = None,
 ) -> str:
     """Construct prompt for Georgian → Svan translation."""
+    direct_evidence = _join_ranked_context(
+        [
+            grep_search_parallel_pairs(
+                georgian_sentence,
+                source_language="georgian",
+                pack_id="svan",
+            ),
+            grep_search_context_source(
+                georgian_sentence,
+                pack_id="svan",
+                match_label="Georgian",
+            ),
+        ]
+    )
     return _construct_prompt(
         georgian_sentence,
         input_lang="georgian",
         output_lang="svan",
         lookup_fn=lambda word: grep_search_from_georgian_for_pack(word, "svan"),
         exact_candidates_block=exact_candidates_block,
+        direct_evidence=direct_evidence,
         skip_word_lookups=skip_word_lookups,
         grammar_policy=grammar_policy,
     )
@@ -520,12 +549,27 @@ def construct_prompt_from_svan_to_georgian(
     """Construct prompt for Svan → Georgian translation."""
     from src.translator.lookup import _grep_search_from_svan_source
 
+    direct_evidence = _join_ranked_context(
+        [
+            grep_search_parallel_pairs(
+                svan_sentence,
+                source_language="svan",
+                pack_id="svan",
+            ),
+            grep_search_context_source(
+                svan_sentence,
+                pack_id="svan",
+                match_label="Svan",
+            ),
+        ]
+    )
     return _construct_prompt(
         svan_sentence,
         input_lang="svan",
         output_lang="georgian",
         lookup_fn=_grep_search_from_svan_source,
         exact_candidates_block=exact_candidates_block,
+        direct_evidence=direct_evidence,
         skip_word_lookups=skip_word_lookups,
         grammar_policy=grammar_policy,
     )

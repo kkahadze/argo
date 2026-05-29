@@ -29,6 +29,15 @@ The Svan language pack selects these files:
 | `private_data/svan/gal.tsv` | Svan and Russian lexical entries |
 | `private_data/svan/sentence_pairs.tsv` | Svan and English aligned material |
 | `private_data/svan/context_source.txt` | Larger fallback context collection |
+| `private_data/svan/attested_variants.tsv` | Bidirectional `same_as` variant edges from Topuria-Kaldani |
+| `private_data/svan/paradigm_forms.tsv` | Exact reviewed She 2024 paradigm cells with provenance |
+
+`context_source.txt` also includes curated conversational phrase evidence from
+`output/svan/ready/quizlet_svan_georgian_conversation_pairs.tsv`. The curated
+subset is also materialized as deterministic bidirectional translation
+overrides for direct requests matching those phrases. Rows containing obvious
+OCR/transcription noise or uncertainty were left out of the curated runtime
+TSV.
 
 At evaluation time, `tuite.txt` contained `334,149` characters. This size is
 the main reason grammar selection has a material prompt-cost impact.
@@ -46,11 +55,29 @@ For Svan to Georgian:
 4. The complete retrieved dictionary section is bounded by
    `ARGO_MAX_RETRIEVAL_CONTEXT_CHARS`, defaulting to `8000`.
 5. The default prompt omits the Tuite grammar block.
+6. If exact lexical evidence does not resolve a source token, a bounded
+   morphology layer may add evidence alongside parallel snippets: attested
+   Topuria-Kaldani variants, exact verified She 2024 paradigm cells, or
+   conservative Tuite noun-suffix analyses whose stripped stem already exists
+   in `kk.tsv`.
+
+The morphology layer is Svan-specific. It does not generate new paradigm
+forms, flatten dialect distinctions, or reuse Mingrelian Harris suffix and
+preverb stripping rules. Its evidence payload is separately bounded by
+`ARGO_MAX_MORPHOLOGY_EVIDENCE_CHARS`, defaulting to `2400`.
+For controlled evals, `ARGO_ENABLE_SVAN_MORPHOLOGY=0` disables only this
+evidence layer; normal runtime behavior defaults to enabled.
 
 For Georgian to Svan, none of those source-direction restrictions are applied.
 The existing retrieval builder and full-grammar default remain in place.
-Svan-to-English and English-to-Svan behavior is also unchanged by this
-decision; it was not part of the evaluated comparison.
+Svan-to-English now uses the same Svan-only morphology fallback without
+changing its grammar default. English-to-Svan behavior is unchanged.
+
+For both Georgian-to-Svan and Svan-to-Georgian, an exact full-input match in
+the Svan parallel context is included as phrase-level prompt evidence even
+when token-level dictionary lookup also returns entries. Curated Quizlet
+phrase matches resolve as exact overrides first; context retrieval supports
+nearby compositional inputs.
 
 ## Evaluation Evidence
 
@@ -128,8 +155,16 @@ The provider requires `OPENAI_API_KEY` in the environment for these runs.
 - Georgian-to-Svan keeps its existing full-grammar and retrieval behavior.
 - Svan-to-English keeps its existing full-grammar default.
 
+`tests/test_svan_morphology.py` protects the morphology boundary:
+
+- Attested Topuria-Kaldani variants retain provenance and resolve through
+  lexicon-attested related forms.
+- Verified She forms retain dialect, paradigm, and slot metadata.
+- Conservative Tuite noun suffix analyses require an attested `kk.tsv` stem.
+- Non-Svan packs do not receive the Svan analyzer.
+
 Run it with:
 
 ```bash
-PYTHONPATH="$PWD" python3 -m unittest discover -s tests -p 'test_svan_directional_prompting.py' -v
+PYTHONPATH="$PWD" python3 -m pytest -q tests/test_svan_directional_prompting.py tests/test_svan_morphology.py
 ```

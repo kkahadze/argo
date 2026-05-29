@@ -8,6 +8,7 @@ indexes; broad substring lookups remain as a compatibility fallback.
 """
 from __future__ import annotations
 
+import csv
 import re
 from collections import defaultdict
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from typing import Callable, Optional
 
 LOOKUP_SEPARATOR = "========\n"
 MAX_LOOKUP_OUTPUT_CHARS = 10000
+COMBINING_MARK_RANGES = "\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f"
 
 FIGURATIVE_MARKERS = {
     "ru": ("переносное значение", "перен."),
@@ -117,6 +119,16 @@ class TranslationOverride:
     target_language: str
     source_text: str
     target_text: str
+
+
+@dataclass(frozen=True)
+class GeorgianParallelPair:
+    low_resource: str
+    georgian: str
+    source_id: str
+    source_family: str = ""
+    evidence_type: str = ""
+    domain_type: str = ""
 
 
 @dataclass(frozen=True)
@@ -264,7 +276,8 @@ def _compiled_word_pattern(word: str, standalone: bool) -> re.Pattern:
         core = sep.join(re.escape(ch) for ch in word)
 
     if standalone:
-        pattern = r"(?<!\w)" + core + r"(?!\w)"
+        word_char = rf"\w{COMBINING_MARK_RANGES}"
+        pattern = rf"(?<![{word_char}])" + core + rf"(?![{word_char}])"
     else:
         pattern = core
 
@@ -401,23 +414,52 @@ def _load_translation_overrides(
     if mtime_ns is None:
         return ()
 
-    rows = []
-    for parts in _read_tsv_rows(file_path, 4):
-        source_language, target_language, source_text, target_text = parts[:4]
-        if (
-            normalize_lookup_value(source_language).lstrip("\ufeff") == "source_language"
-            and normalize_lookup_value(target_language) == "target_language"
-        ):
-            continue
-        if source_language and target_language and source_text and target_text:
-            rows.append(
+    try:
+        with Path(file_path).open("r", encoding="utf-8-sig", newline="") as file:
+            source_rows = csv.DictReader(file, delimiter="\t")
+            rows = [
                 TranslationOverride(
-                    source_language=source_language,
-                    target_language=target_language,
-                    source_text=source_text,
-                    target_text=target_text,
+                    source_language=(row.get("source_language") or "").strip(),
+                    target_language=(row.get("target_language") or "").strip(),
+                    source_text=(row.get("source_text") or "").strip(),
+                    target_text=(row.get("target_text") or "").strip(),
                 )
-            )
+                for row in source_rows
+                if (row.get("source_language") or "").strip()
+                and (row.get("target_language") or "").strip()
+                and (row.get("source_text") or "").strip()
+                and (row.get("target_text") or "").strip()
+            ]
+    except FileNotFoundError:
+        return ()
+    return tuple(rows)
+
+
+def _load_parallel_pairs(
+    file_path: str,
+    mtime_ns: Optional[int],
+) -> tuple[GeorgianParallelPair, ...]:
+    if mtime_ns is None:
+        return ()
+
+    try:
+        with Path(file_path).open("r", encoding="utf-8-sig", newline="") as file:
+            source_rows = csv.DictReader(file, delimiter="\t")
+            rows = [
+                GeorgianParallelPair(
+                    low_resource=(row.get("low_resource") or "").strip(),
+                    georgian=(row.get("georgian") or "").strip(),
+                    source_id=(row.get("source_id") or "").strip(),
+                    source_family=(row.get("source_family") or "").strip(),
+                    evidence_type=(row.get("evidence_type") or "").strip(),
+                    domain_type=(row.get("domain_type") or "").strip(),
+                )
+                for row in source_rows
+                if (row.get("low_resource") or "").strip()
+                and (row.get("georgian") or "").strip()
+            ]
+    except FileNotFoundError:
+        return ()
     return tuple(rows)
 
 
@@ -500,6 +542,7 @@ class DictionaryStore:
         *,
         pack_id: str,
         translation_overrides: tuple[TranslationOverride, ...],
+        parallel_pairs: tuple[GeorgianParallelPair, ...],
         sentence_pairs: tuple[SentencePair, ...],
         gal_entries: tuple[GalEntry, ...],
         kk_entries: tuple[KkEntry, ...],
@@ -508,6 +551,7 @@ class DictionaryStore:
         self.pack_id = normalize_pack_id(pack_id)
         self.low_resource_label = low_resource_label(self.pack_id)
         self.translation_overrides = translation_overrides
+        self.parallel_pairs = parallel_pairs
         self.sentence_pairs = sentence_pairs
         self.gal_entries = gal_entries
         self.kk_entries = kk_entries
@@ -539,6 +583,14 @@ class DictionaryStore:
             kk_entries,
             lambda row: (row.low_resource,),
         )
+        self._parallel_low_resource_index = _build_index(
+            parallel_pairs,
+            lambda row: (row.low_resource,),
+        )
+        self._parallel_georgian_index = _build_index(
+            parallel_pairs,
+            lambda row: (row.georgian,),
+        )
 
         self._sentence_low_resource_exact = _build_exact_index(sentence_pairs, lambda row: (row.low_resource,))
         self._sentence_english_exact = _build_exact_index(sentence_pairs, lambda row: (row.english,))
@@ -547,6 +599,14 @@ class DictionaryStore:
         self._kk_low_resource_exact = _build_exact_index(kk_entries, lambda row: (row.low_resource,))
         self._kk_russian_exact = _build_exact_index(kk_entries, lambda row: (row.russian,))
         self._kk_georgian_exact = _build_exact_index(kk_entries, lambda row: (row.georgian,))
+        self._parallel_low_resource_exact = _build_exact_index(
+            parallel_pairs,
+            lambda row: (row.low_resource,),
+        )
+        self._parallel_georgian_exact = _build_exact_index(
+            parallel_pairs,
+            lambda row: (row.georgian,),
+        )
         self._translation_override_exact = _build_translation_override_index(translation_overrides)
 
     @property
@@ -611,6 +671,52 @@ class DictionaryStore:
         key = _translation_override_key(source_language, target_language, source_text)
         row_indexes = self._translation_override_exact.get(key, ())
         return tuple(self.translation_overrides[row_index] for row_index in row_indexes)
+
+    @lru_cache(maxsize=4096)
+    def search_parallel_pairs(
+        self,
+        word: str,
+        *,
+        source_language: str,
+        max_rows: int = 3,
+    ) -> SearchResult:
+        """Retrieve audited Georgian parallel examples from the requested source side only."""
+        source_language = normalize_lookup_value(source_language)
+        if source_language == self.pack_id:
+            source_text = lambda row: row.low_resource
+            index = self._parallel_low_resource_index
+            exact_index = self._parallel_low_resource_exact
+        elif source_language == "georgian":
+            source_text = lambda row: row.georgian
+            index = self._parallel_georgian_index
+            exact_index = self._parallel_georgian_exact
+        else:
+            return SearchResult("", False)
+
+        row_indexes = list(exact_index.get(normalize_lookup_value(word), ()))
+        exact_match = bool(row_indexes)
+        if not row_indexes:
+            row_indexes = [
+                row_index
+                for row_index in self._candidate_indexes(index, word)
+                if is_standalone_match(source_text(self.parallel_pairs[row_index]), word)
+            ]
+        if not row_indexes:
+            return SearchResult("", False)
+
+        parts = [LOOKUP_SEPARATOR]
+        for row_index in row_indexes[:max_rows]:
+            row = self.parallel_pairs[row_index]
+            evidence_label = (row.evidence_type or "audited_parallel_example").replace("_", " ")
+            if row.domain_type:
+                evidence_label += f"; domain={row.domain_type}"
+            parts.append(
+                f"SOURCE: {row.source_id} ({evidence_label}; prompt evidence only)\n"
+                f"{self.low_resource_label}: {row.low_resource}\n"
+                f"Georgian: {row.georgian}\n"
+            )
+            parts.append(LOOKUP_SEPARATOR)
+        return SearchResult("".join(parts), exact_match)
 
     @lru_cache(maxsize=4096)
     def search_sentence_pairs(self, word: str, *, standalone_only: bool = False) -> SearchResult:
@@ -775,6 +881,7 @@ def get_dictionary_store(pack_id: str = DEFAULT_PACK_ID) -> DictionaryStore:
     return _get_dictionary_store_cached(
         normalized_pack_id,
         _data_file_cache_key("translation_overrides.tsv", normalized_pack_id),
+        _data_file_cache_key("parallel_pairs.tsv", normalized_pack_id),
         _data_file_cache_key("sentence_pairs.tsv", normalized_pack_id),
         _data_file_cache_key("gal.tsv", normalized_pack_id),
         _data_file_cache_key("kk.tsv", normalized_pack_id),
@@ -786,6 +893,7 @@ def get_dictionary_store(pack_id: str = DEFAULT_PACK_ID) -> DictionaryStore:
 def _get_dictionary_store_cached(
     pack_id: str,
     translation_overrides_key: tuple[str, Optional[int]],
+    parallel_pairs_key: tuple[str, Optional[int]],
     sentence_pairs_key: tuple[str, Optional[int]],
     gal_key: tuple[str, Optional[int]],
     kk_key: tuple[str, Optional[int]],
@@ -794,6 +902,7 @@ def _get_dictionary_store_cached(
     return DictionaryStore(
         pack_id=pack_id,
         translation_overrides=_load_translation_overrides(*translation_overrides_key),
+        parallel_pairs=_load_parallel_pairs(*parallel_pairs_key),
         sentence_pairs=_load_sentence_pairs(*sentence_pairs_key, pack_id),
         gal_entries=_load_gal_entries(*gal_key, pack_id),
         kk_entries=_load_kk_entries(*kk_key),
