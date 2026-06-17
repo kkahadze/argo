@@ -14,6 +14,7 @@ from src.provider_config import (
     get_api_key_env_var,
     get_default_model_for_provider,
     get_default_reasoning_effort_for_model,
+    normalize_model_for_provider,
 )
 
 # Load environment variables
@@ -56,7 +57,10 @@ class LLMClient:
             raise ValueError(
                 f"Unsupported provider: {provider}. Use {supported}."
             )
-        self.model = model or os.getenv("LLM_MODEL") or default_model
+        self.model = normalize_model_for_provider(
+            provider,
+            model or os.getenv("LLM_MODEL") or default_model,
+        )
         self.reasoning_effort = (
             reasoning_effort or get_default_reasoning_effort_for_model(self.model)
         )

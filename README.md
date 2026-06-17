@@ -91,7 +91,7 @@ GEMINI_API_KEY=your_gemini_key_here
 LLM_PROVIDER=openai  # or "anthropic" or "gemini"
 
 # Default model (optional)
-LLM_MODEL=gpt-5.5  # or gpt-5.4-nano, gpt-5.4-mini, gpt-5.4, claude-sonnet-4-5-20250929, gemini-3.1-flash-lite-preview, etc.
+LLM_MODEL=gpt-5.5  # or gpt-5.4-nano, gpt-5.4-mini, gpt-5.4, claude-sonnet-4-5-20250929, gemini-3.1-flash-lite, etc.
 
 # Logging (optional, defaults to INFO console logs only)
 LOG_LEVEL=INFO
@@ -177,7 +177,7 @@ Provider names, language names/defaults, provider model defaults, provider reaso
 - `claude-3-opus-20240229`
 
 ### Google
-- `gemini-3.1-flash-lite-preview` (default)
+- `gemini-3.1-flash-lite` (default)
 - `gemini-2.0-flash-exp`
 
 ## Architecture

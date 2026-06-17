@@ -51,7 +51,13 @@ class DictionaryStoreTests(unittest.TestCase):
             "english\tmingrelian\thello\tგომორძგუა\n"
             "english\tmingrelian\twhat is your name?\tსი მუ რჯოხო?\n"
             "english\tmingrelian\twhat is your name\tსი მუ რჯოხო?\n"
-            "english\tgeorgian\twhat language is this\tრა ენაა ეს\n",
+            "english\tgeorgian\twhat language is this\tრა ენაა ეს\n"
+            "english\tmingrelian\twhat language is this\tმუ ნინა რე თენა?\n"
+            "english\tmingrelian\thow are you\tმუჭო რექჷ?\n"
+            "georgian\tmingrelian\tგამარჯობა\tგომორძგუა\n"
+            "georgian\tmingrelian\tმიყვარხარ\tმიჸორქ\n"
+            "georgian\tmingrelian\tხილვა\tხილუა\n"
+            "mingrelian\tgeorgian\tჯგიტი\tჭიანჭველა\n",
             encoding="utf-8",
         )
         (self.data_dir / "context_source.txt").write_text("", encoding="utf-8")
@@ -98,8 +104,29 @@ class DictionaryStoreTests(unittest.TestCase):
             check_exact_match_simple("what is your name", "english", "mingrelian"),
             "სი მუ რჯოხო?",
         )
-        self.assertIsNone(
-            check_exact_match_simple("what language is this", "english", "mingrelian")
+        self.assertEqual(
+            check_exact_match_simple("what language is this", "english", "mingrelian"),
+            "მუ ნინა რე თენა?",
+        )
+        self.assertEqual(
+            check_exact_match_simple("how are you", "english", "mingrelian"),
+            "მუჭო რექჷ?",
+        )
+        self.assertEqual(
+            check_exact_match_simple("გამარჯობა", "georgian", "mingrelian"),
+            "გომორძგუა",
+        )
+        self.assertEqual(
+            check_exact_match_simple("მიყვარხარ", "georgian", "mingrelian"),
+            "მიჸორქ",
+        )
+        self.assertEqual(
+            check_exact_match_simple("ხილვა", "georgian", "mingrelian"),
+            "ხილუა",
+        )
+        self.assertEqual(
+            check_exact_match_simple("ჯგიტი", "mingrelian", "georgian"),
+            "ჭიანჭველა",
         )
 
         candidates = collect_exact_match_candidates("ეკლესია", "georgian", "mingrelian")

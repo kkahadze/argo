@@ -126,7 +126,7 @@ class ProviderConfigTests(unittest.TestCase):
             {
                 "openai": "gpt-5.5",
                 "anthropic": "claude-sonnet-4-5-20250929",
-                "gemini": "gemini-3.1-flash-lite-preview",
+                "gemini": "gemini-3.1-flash-lite",
             },
         )
         self.assertEqual(
@@ -146,8 +146,8 @@ class ProviderConfigTests(unittest.TestCase):
         self.assertEqual(
             provider_config.SERVER_KEY_MODELS,
             {
-                "openai": frozenset({"gpt-5.5", "gpt-5.4-nano"}),
-                "gemini": frozenset({"gemini-3.1-flash-lite-preview"}),
+                "openai": frozenset({"gpt-5.5", "gpt-5.4-mini", "gpt-5.4-nano"}),
+                "gemini": frozenset({"gemini-3.1-flash-lite"}),
             },
         )
 
@@ -162,6 +162,21 @@ class ProviderConfigTests(unittest.TestCase):
             provider_config.is_server_key_model_allowed(
                 "anthropic",
                 provider_config.DEFAULT_MODEL_BY_PROVIDER["anthropic"],
+            )
+        )
+
+    def test_retired_model_aliases_resolve_before_provider_calls(self):
+        self.assertEqual(
+            provider_config.normalize_model_for_provider(
+                "gemini",
+                "gemini-3.1-flash-lite-preview",
+            ),
+            "gemini-3.1-flash-lite",
+        )
+        self.assertTrue(
+            provider_config.is_server_key_model_allowed(
+                "gemini",
+                "gemini-3.1-flash-lite-preview",
             )
         )
 
