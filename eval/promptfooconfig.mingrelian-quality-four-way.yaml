@@ -1,0 +1,111 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Canonical 104-row Mingrelian four-direction translation eval"
+
+providers:
+  - id: file://provider.py
+    label: "GPT-5.6 Sol"
+    config:
+      provider: openai
+      model: gpt-5.6-sol
+      source_language_var: source_language
+      target_language_var: target_language
+      temperature: 0.2
+      reasoning_effort: none
+      max_tokens: 1024
+
+prompts:
+  - "{{input_text}}"
+
+tests: file://datasets/mingrelian-quality-four-way.csv
+
+maxConcurrency: 20
+
+defaultTest:
+  threshold: 0.9
+  assertScoringFunction: file://scoring/mingrelian_translation_quality.js
+  assert:
+    - type: javascript
+      metric: target_script_and_format
+      value: file://assertions/target_script_and_format.js
+    - type: javascript
+      metric: reference_form_diagnostic
+      value: file://assertions/normalized_reference_form.js
+    - type: javascript
+      metric: expected_token_coverage
+      value: file://assertions/expected_token_coverage.js
+    - type: javascript
+      metric: strict_mingrelian_reference_required
+      value: file://assertions/strict_mingrelian_reference_required.js
+    - type: llm-rubric
+      provider: openai:gpt-5-mini
+      metric: translation_quality
+      value: |
+        Grade one low-resource translation against aligned references. Return
+        a continuous 0.0..1.0 quality score so partial improvements are
+        visible. Do not demand literal string identity and do not use outside
+        knowledge to overrule the supplied aligned evidence.
+
+        Grading evidence is asymmetric by target language:
+        - For English or Georgian targets, the judge can directly compare the
+          candidate's meaning to the target reference; use the Mingrelian
+          source only as disambiguating evidence.
+        - For a Mingrelian target, do not pretend to know unattested Mingrelian
+          fluency or semantics. Treat the audited reference, accepted variants,
+          stem overlap, parallel translations, and source notes as the
+          authority. A fluent-looking Mkhedruli string is not evidence by
+          itself. Be conservative when a high-confidence candidate differs
+          from every audited reference form.
+
+        Sentence weights:
+        - 50% core meaning and semantic frame: predicate, relation, polarity,
+          tense, and participant roles;
+        - 25% content words and named entities;
+        - 15% person, number, copula, morphology, and grammar;
+        - 10% correct target language and product-appropriate output.
+
+        Standalone lexical-item weights:
+        - 70% lexical meaning;
+        - 20% target language and product-appropriate output;
+        - 10% form and orthographic quality.
+
+        Score bands and caps:
+        - 0.90..1.00: fully faithful translation or supplied accepted variant.
+        - 0.75..0.89: mostly faithful with one minor morphology, agreement,
+          article, or fluency issue.
+        - 0.40..0.69: right topic or some right words, but one major content
+          word, predicate, copula, participant, tense, or polarity error.
+        - at most 0.39: fragment, wrong core relation, reversal, or mostly
+          unrelated output.
+        - at most 0.20: wrong target language, Latin-script Mingrelian,
+          Cyrillic transcription, gibberish, commentary, or untranslated
+          source.
+
+        Do not penalize morphology hyphens/separators, harmless punctuation,
+        word order, articles, capitalization, supported synonyms, listed
+        variants, equivalent name transliteration, or variation/omission of a
+        word-final Mingrelian vowel when the stem and meaning stay the same.
+        The final-vowel tolerance does not excuse a different root, internal
+        vowel/consonant change, missing predicate, changed person/number/tense,
+        polarity, or participant.
+
+        A finite source clause rendered as a bare noun/adjective phrase is
+        missing its core predicate. Missing a required copula, naming,
+        possession, motion, speech, or desire predicate is a major frame error
+        and cannot score above 0.69, even when all nearby nouns are correct.
+
+        Always return JSON with pass=true. The outer scoring function applies
+        the 0.90 release threshold and deterministic script cap:
+        {"pass": true, "score": 0.00, "reason": "one concise sentence naming the largest remaining error or saying faithful translation"}
+
+        Direction: {{direction}}
+        Row type: {{row_type}}
+        Source language: {{source_language}}
+        Target language: {{target_language}}
+        Source text: {{input_text}}
+        Target reference: {{reference_text}}
+        Accepted target variants: {{acceptable_target_variants}}
+        Parallel English: {{english}}
+        Parallel Georgian: {{georgian}}
+        Parallel Mingrelian: {{mingrelian}}
+        Confidence: {{confidence}}
+        Source notes: {{notes}}
