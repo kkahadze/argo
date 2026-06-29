@@ -28,6 +28,21 @@ from src.provider_config import (
 EVAL_DEFAULT_PROVIDER = 'gemini'
 
 
+def _runtime_value(runtime_options, context, option_name, default):
+    """Resolve an option from row vars when a *_var config key is supplied."""
+    var_name = runtime_options.get(f"{option_name}_var")
+    if not var_name:
+        return runtime_options.get(option_name, default)
+
+    vars_ = context.get("vars", {}) if isinstance(context, dict) else {}
+    value = vars_.get(var_name)
+    if value in (None, ""):
+        raise ValueError(
+            f"Missing eval row variable '{var_name}' for {option_name}"
+        )
+    return value
+
+
 def call_api(prompt, options, context):
     """
     Promptfoo provider interface.
@@ -64,8 +79,18 @@ def call_api(prompt, options, context):
         api_key_env_var = get_api_key_env_var(provider)
         env_api_key = os.getenv(api_key_env_var) if api_key_env_var else None
         api_key = runtime_options.get('api_key') or env_api_key
-        source_language = runtime_options.get('source_language', DEFAULT_SOURCE_LANGUAGE)
-        target_language = runtime_options.get('target_language', DEFAULT_TARGET_LANGUAGE)
+        source_language = _runtime_value(
+            runtime_options,
+            context,
+            'source_language',
+            DEFAULT_SOURCE_LANGUAGE,
+        )
+        target_language = _runtime_value(
+            runtime_options,
+            context,
+            'target_language',
+            DEFAULT_TARGET_LANGUAGE,
+        )
         temperature = runtime_options.get('temperature', 1.0)
         max_tokens = runtime_options.get('max_tokens')
         reasoning_effort = runtime_options.get('reasoning_effort')
